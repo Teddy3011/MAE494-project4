@@ -1,0 +1,33 @@
+# Project 4 - engine-mount bracket. All SI units (m, N, Pa, kg, s).
+# Every modelling assumption lives here; change it here only.
+
+seed: 0
+
+material:            # aluminium 6061-T6
+  E: 69.0e+9
+  nu: 0.33
+  rho: 2700.0
+  yield: 276.0e+6
+
+loads:
+  engine_mass: 120.0 # kg
+  g_factor: 3.0      # 3 g vertical static
+  g: 9.81
+  torque: 400.0      # N*m reaction at the top-plate mount point
+
+limits:
+  safety_factor: 1.5 # R1: sigma_allow = yield / 1.5 = 184 MPa
+  pnorm_p: 8         # default (not from spec): p-norm exponent for aggregated von Mises
+  disp_max: 0.5e-3   # R2
+  freq_min: 100.0    # R3, Hz
+  buckling_min: 3.0  # R4
+
+design:
+  t_min: 3.0e-3      # R5 bounds on all thickness-like variables
+  t_max: 20.0e-3
+
+solver:
+  # Default (not from spec): Wilson-Taylor incompatible modes on the hex8.
+  # Plain fully-integrated hex8 shear-locks in thin walls (see verification V2b).
+  # ANSYS SOLID185 uses enhanced strain by default, which this matches more closely.
+  incompatible_modes: true
