@@ -1,0 +1,5 @@
+id,name,value,exact,rel_err,note
+V1a,Patch test: interior displacement norm,0.0015283175920466207,0.0015283175920466205,2.9083071579112474e-16,distorted 3x3x3 mesh; rel_err = ||u-u_ex||/||u_ex||
+V1b,Patch test: sigma_xx [Pa],-63076211.57058923,-63076211.570589244,5.002284032272473e-16,rel_err = max over elements of ||sigma-sigma_ex||/||sigma_ex||
+V2,"Cantilever tip deflection [m], mesh (20, 2, 2)",0.004640579710087563,0.00463768115942029,0.0006249999876308215,"L/h=20, nu=0; Timoshenko 4.644638e-03 m (rel diff 8.74e-04)"
+V2b,"Cantilever tip deflection [m], mesh (20, 2, 2) (plain hex8, shear locking)",0.0030956521739327406,0.00463768115942029,0.3324999999957528,"L/h=20, nu=0; Timoshenko 4.644638e-03 m (rel diff 3.33e-01)"
