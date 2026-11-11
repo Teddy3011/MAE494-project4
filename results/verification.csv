@@ -1,5 +1,35 @@
-id,name,value,exact,rel_err,note
-V1a,Patch test: interior displacement norm,0.0015283175920466207,0.0015283175920466205,2.9083071579112474e-16,distorted 3x3x3 mesh; rel_err = ||u-u_ex||/||u_ex||
-V1b,Patch test: sigma_xx [Pa],-63076211.57058923,-63076211.570589244,5.002284032272473e-16,rel_err = max over elements of ||sigma-sigma_ex||/||sigma_ex||
-V2,"Cantilever tip deflection [m], mesh (20, 2, 2)",0.004640579710087563,0.00463768115942029,0.0006249999876308215,"L/h=20, nu=0; Timoshenko 4.644638e-03 m (rel diff 8.74e-04)"
-V2b,"Cantilever tip deflection [m], mesh (20, 2, 2) (plain hex8, shear locking)",0.0030956521739327406,0.00463768115942029,0.3324999999957528,"L/h=20, nu=0; Timoshenko 4.644638e-03 m (rel diff 3.33e-01)"
+id,name,value,exact,error,tol,passed,note
+V1.a1,"Patch test, interior displacement (incompatible)",0.0015283175920466205,0.0015283175920466205,4.0046405254302133e-16,1e-10,True,"distorted 3x3x3 mesh, all nodes moved up to 20% of h; error = ||u-u_ex||/||u_ex||"
+V1.a2,"Patch test, Gauss-point stress sigma_xx [Pa] (incompatible)",-63076211.57058922,-63076211.570589244,1.3628181669543864e-15,1e-10,True,error = max over all 216 Gauss points of ||sigma-sigma_ex||/||sigma_ex||
+V1.b1,"Patch test, interior displacement (plain hex8)",0.0015283175920466202,0.0015283175920466205,3.389252399548414e-16,1e-10,True,"distorted 3x3x3 mesh, all nodes moved up to 20% of h; error = ||u-u_ex||/||u_ex||"
+V1.b2,"Patch test, Gauss-point stress sigma_xx [Pa] (plain hex8)",-63076211.57058922,-63076211.570589244,9.734363226814571e-16,1e-10,True,error = max over all 216 Gauss points of ||sigma-sigma_ex||/||sigma_ex||
+V2.a,"Cantilever tip deflection [m], mesh (20, 2, 2)",0.004640579710660248,0.00463768115942029,0.0006250001111160524,0.005,True,"vs Euler-Bernoulli; Timoshenko 4.644638e-03 m, difference 8.7e-04"
+V2.b,"Cantilever tip deflection [m], mesh (20, 2, 2), plain hex8",0.0030956521739253836,0.00463768115942029,0.33249999999733915,0.5,True,expected to FAIL a tight tolerance: shear locking (33 % too stiff). Tolerance 0.5 only documents the size of the locking error; this is why incompatible modes are used.
+V3.1,"Cantilever f1 [Hz], mesh (10, 1, 1)",204.10638659134509,204.15636896222887,0.0002448239608583047,1.0,True,"consistent mass; finest mesh must be within 1 %, coarser rows show convergence"
+V3.2,"Cantilever f1 [Hz], mesh (20, 2, 2)",203.92261688824485,204.15636896222887,0.0011449658669589102,1.0,True,"consistent mass; finest mesh must be within 1 %, coarser rows show convergence"
+V3.3,"Cantilever f1 [Hz], mesh (40, 4, 4)",203.84881197074495,204.15636896222887,0.0015064775742598658,0.01,True,"consistent mass; finest mesh must be within 1 %, coarser rows show convergence"
+V3.p,Repeated pair: f2/f1 (square section),1.0000000002392435,1.0,2.3924351388870946e-10,1e-06,True,y and z bending are degenerate by symmetry
+V3.m,Mass normalization max |phi^T M phi - 1|,1.0000000000000002,1.0,2.220446049250313e-16,1e-12,True,absolute error
+V3.o,"M-orthogonality max |phi_i^T M phi_j|, i != j",1.1102230246251565e-15,0.0,1.1102230246251565e-15,1e-10,True,absolute error; holds inside the repeated pair too
+V4.1,"Euler column P_cr [N], mesh (20, 1, 1)",887.2922903149656,886.722270410372,0.0006428392785599724,1.0,True,fixed-free; finest mesh within 1 %
+V4.2,"Euler column P_cr [N], mesh (40, 2, 2)",886.6083514676521,886.722270410372,0.00012847195398293639,1.0,True,fixed-free; finest mesh within 1 %
+V4.3,"Euler column P_cr [N], mesh (80, 4, 4)",886.4053935824936,886.722270410372,0.0003573574708253153,0.01,True,fixed-free; finest mesh within 1 %
+V4.p,Repeated pair: alpha2/alpha1 (square section),1.0000000026529476,1.0,2.652947639347758e-09,1e-06,True,buckling about y and z is degenerate
+V4.2,Second mode ratio alpha3/alpha1,8.97436848787428,9.0,0.0028479457917466927,0.02,True,fixed-free modes scale as (2n-1)^2: second distinct mode = 9 P_cr
+V5.1,Free-free block: number of zero eigenvalues,6.0,6.0,0.0,0.0,True,|lambda| < 1e-9 lambda_max; 7th/max eigenvalue ratio 8.41e-03
+V5.2,Consistent mass: 1x^T M 1x [kg],0.016199999999999996,0.016200000000000003,4.2832678419180415e-16,1e-12,True,equals rho V for a rigid translation
+V5.sK_e,"Symmetry ||A - A^T||/||A||, distorted K_e",2.2168598308708302e-16,0.0,2.2168598308708302e-16,1e-13,True,absolute
+V5.sM_e,"Symmetry ||A - A^T||/||A||, distorted M_e",6.576120023597883e-17,0.0,6.576120023597883e-17,1e-13,True,absolute
+"V5.sK_G,e","Symmetry ||A - A^T||/||A||, distorted K_G,e",1.0461812315567155e-16,0.0,1.0461812315567155e-16,1e-13,True,absolute
+V5.pd,Element mass positive definite: min eigenvalue > 0,1.1999651926435282e-05,0.0,0.0,0.0,True,min eigenvalue 1.200e-05 kg
+V5.r,Rotation invariance: tip |u| after a random rotation [m],0.004642751503024112,0.004642751503557062,1.1479193308077173e-10,1e-09,True,"whole mesh and load rotated; magnitudes must not change. Tolerance 1e-9, not 1e-10: the rotated solve loses digits to cond(K) ~ 1e6 (first set at 1e-10, observed 1.2e-10)"
+V5.inv,Inverted element is rejected,1.0,1.0,0.0,0.0,True,check_mesh raises ValueError
+V5.eq1,Bracket LC1: force + reaction balance,2.8618109326234344e-14,0.0,2.8618109326234344e-14,1e-09,True,||sum F + sum R|| / |W|; reactions from the global K u at the supports
+V5.em1,Bracket LC1: moment balance about the origin,1.68623480422922e-14,0.0,1.68623480422922e-14,1e-09,True,normalized by W x domain length
+V5.eq2,Bracket LC2: force + reaction balance,4.4487890568595097e-14,0.0,4.4487890568595097e-14,1e-09,True,||sum F + sum R|| / |W|; reactions from the global K u at the supports
+V5.em2,Bracket LC2: moment balance about the origin,4.590496641246607e-14,0.0,4.590496641246607e-14,1e-09,True,normalized by W x domain length
+V5.eq3,Bracket LC3: force + reaction balance,4.10683507417192e-14,0.0,4.10683507417192e-14,1e-09,True,||sum F + sum R|| / |W|; reactions from the global K u at the supports
+V5.em3,Bracket LC3: moment balance about the origin,1.900298874966615e-14,0.0,1.900298874966615e-14,1e-09,True,normalized by W x domain length
+V5.T,Applied torque about y [N m] (LC2 - LC1),400.0,400.0,0.0,1e-12,True,
+V5.kg,Bracket K_G assembly vs generic element routine,1.1185909067618247e-15,0.0,1.1185909067618247e-15,1e-12,True,max entry difference / max entry; this check caught a double factor E0 in development
+V5.mb,Bracket solid-domain mass [kg],10.368000000000002,10.368,1.7133071367672168e-16,1e-12,True,

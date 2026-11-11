@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Engine-Mount Bracket Optimization</title>
 <meta name="description" content="MAE 494/598 Project 4: PDE-constrained topology optimization of an aluminium engine-mount bracket with frequency and linear-buckling constraints.">
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="assets/style.css">
 <script>window.MathJax = { tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] } };</script>
 <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
@@ -35,7 +36,7 @@
 <div class="kpi"><div class="v">&minus;@@reduction@@ %</div><div class="l">vs the solid design domain (@@mass_I@@ kg)</div></div>
 <div class="kpi"><div class="v">@@f1_B@@ Hz</div><div class="l">first natural frequency, required &ge; 100 Hz</div></div>
 <div class="kpi"><div class="v">@@alpha_B@@</div><div class="l">critical buckling load factor, required &ge; 3</div></div>
-<div class="kpi"><div class="v">@@kpi_feasible@@</div><div class="l">every constraint, re-analysed independently</div></div>
+<div class="kpi"><div class="v">@@kpi_feasible@@</div><div class="l">every constraint, independent re-analysis on the @@h_mm@@ mm mesh</div></div>
 </div>
 <p>An aluminium 6061-T6 bracket carries a 120 kg engine at 3&nbsp;g plus a &plusmn;400&nbsp;N&middot;m torque reaction.
 Starting from a solid 200&times;120&times;160&nbsp;mm block, a density-based (SIMP) topology optimization on
@@ -45,7 +46,9 @@ Near-active at the optimum: <b>@@active_B@@</b>. The 100&nbsp;Hz frequency requi
 included as a lumped mass, sizes the bracket. Linear buckling (the nonlinear component N1) is far from active:
 adding the constraint \(\alpha_{cr}\ge 3\) changes the mass by @@dm_AB@@&nbsp;% (@@mass_A@@ &rarr; @@mass_B@@&nbsp;kg),
 because the frequency-sized members are stocky (\(\alpha_{cr}\) = @@alpha_A@@ without the constraint).
-A supplementary study in section 7 removes the frequency requirement to show when stability does matter.</p>
+A supplementary study in section 7 removes the frequency requirement to show when stability does matter.
+<b>Caveat:</b> re-analysed on a 5&nbsp;mm mesh, the optimized design's first frequency is @@ref5_f1@@&nbsp;Hz (@@ref5_pct@@&nbsp;%), so it
+@@ref5_verdict@@ (section 8).</p>
 
 <section id="viewer">
 <h3>Interactive 3D comparison</h3>
@@ -178,7 +181,10 @@ The V3/V4 coarse rows have a loose tolerance and show convergence; the finest me
 <p>From the second-finest to the finest mesh, the first frequency changes by @@conv_f1@@ % and the mount displacement by
 @@conv_disp@@ %. The maximum von Mises stress keeps growing (+@@conv_vm@@ % at the last refinement): the clamped pad edges and the
 loaded patch corners are re-entrant corners where linear elasticity predicts singular stress. This is why the stress constraint is
-an aggregate of a relaxed stress, and why stress results are reported with this caveat (section 10).</p>
+an aggregate of a relaxed stress, and why stress results are reported with this caveat (section 10). The buckling factor of the solid
+block does not converge either (@@a_conv@@): a solid block has no slender member, so its lowest "buckling" mode is a local mode driven by the
+same singular compressive stresses. Every value is three orders of magnitude above the requirement, so the conclusion is unaffected,
+but the solid-domain buckling factor should not be read as a physical capacity.</p>
 
 <h2 id="sensitivities">5 Sensitivities</h2>
 <p>Course method (ii): JAX differentiates only element-level functions (the Gauss-point stress measure and the element quadratic
@@ -275,8 +281,10 @@ engine), so stress and displacement size the bracket, and the buckling requireme
 project's design case.</p>
 @@nl_table@@
 <p>Without frequency or buckling constraints the design is @@mass_N@@ kg with \(\alpha_{cr}\) = @@alpha_N@@: buckling is still not critical at
-\(\alpha_{req}=3\). Requirements above the unconstrained value force the optimizer to stabilize the slender compression members, and the
-mass rises; the table shows by how much.</p>
+\(\alpha_{req}=3\). Requirements above that value become active (see the near-active column), and the optimizer then shapes the compression
+members to meet them. The mass does not rise monotonically with the requirement: some constrained runs end lighter than the unconstrained one.
+These are different local optima of a nonconvex problem started from the same design, so differences of a few percent between these runs are
+within the optimizer's path scatter and should not be read as the cost of stability.</p>
 
 <h2 id="results">8 Results table</h2>
 <p>All values from an independent re-analysis of each final design on a fresh model instance (@@h_mm@@ mm mesh, p = 3, &beta; = 8).
@@ -284,8 +292,15 @@ Stress p-norm values are the constrained aggregates; "true max" is the largest r
 @@results_table@@
 <h3>Robustness checks</h3>
 @@checks_table@@
-<p>The 20 mm design re-analysed on the 10 mm mesh gives f<sub>1</sub> = @@refine_f1@@ Hz (on its own mesh, @@coarse_f1@@ Hz). The thresholded
-0/1 version of B, the manufacturing interpretation, has f<sub>1</sub> = @@thr_f1@@ Hz. Thresholding is used only for this check and for display.</p>
+<p><b>Mesh refinement.</b> The frequency of an optimized design depends on the voxel size. The 20 mm design S1 meets 100 Hz on its own mesh
+(@@coarse_f1@@ Hz) but gives @@refine_f1@@ Hz when every voxel is split into eight. The reported 10 mm design B gives @@ref5_f1@@ Hz on a 5 mm mesh
+(@@ref5_pct@@ %), so it @@ref5_verdict@@. Coarse voxels make the thin, partly gray members too stiff in bending. Stress (max p-norm
+@@ref5_stress@@ MPa) and displacement still pass on the 5 mm mesh. The design conclusions hold at both resolutions (the frequency
+drives the mass, buckling is far from active, a four-legged frame between the pads and the engine interface), but the 100 Hz margin does not.
+A design for production would be optimized against a frequency target about @@ref5_margin@@ % higher in &omega;&sup2; (calibrated by this check)
+or directly on the finer mesh; neither was run here, so the reported numbers are those of the 10 mm model.</p>
+<p><b>0/1 interpretation.</b> Thresholding B at &rho; = 0.5 gives @@thr_mass@@ kg with f<sub>1</sub> = @@thr_f1@@ Hz: removing the gray voxels, which carry
+mass but little stiffness under SIMP, raises the frequency. Thresholding is used only for this check and for display.</p>
 @@fig_geometry@@
 @@fig_stress@@
 @@fig_modes@@
@@ -304,7 +319,8 @@ buckling capacity of thin members can be well below the linear estimate; here th
 <li>Supports are bonded pads; real bolts, contact, preload and slip are not modelled. Loads are uniform/linear tractions on an idealized patch.</li>
 <li>Stress at the clamped pad edges and the patch corners is singular in linear elasticity (section 4), so the maximum stress is mesh dependent.
 The relaxed, aggregated stress is an engineering measure, not a certification value.</li>
-<li>Voxel resolution @@h_mm@@ mm: surfaces are stair-stepped; a smooth CAD reconstruction would need re-analysis.</li>
+<li>Voxel resolution @@h_mm@@ mm: surfaces are stair-stepped, and the first frequency of the optimized design drops to @@ref5_f1@@ Hz on a 5 mm mesh
+(section 8). The design is feasible on its analysis mesh; a production design needs a frequency margin or a finer mesh.</li>
 <li>Intermediate densities remain at boundaries (see grayness in the results table); the thresholded check quantifies the effect.</li>
 <li>No fatigue (engine vibration is cyclic), no thermal loads, no manufacturing validation. 276 MPa is a typical yield strength;
 a design-allowable (MMPDS) value is lower.</li>

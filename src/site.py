@@ -170,10 +170,13 @@ def build(data, out, model):
     # checks
     ch = out["checks"]
     crow = []
-    for key, lab in [("refined_S1", "20 mm design (S1) upsampled to the 10 mm mesh"), ("thresholded_B", "Design B thresholded at &rho; = 0.5 (0/1 design)")]:
+    for key, lab in [("refined_S1", "20 mm design (S1) re-analysed on the 10 mm mesh"),
+                     ("refined_B", "Design B re-analysed on a 5 mm mesh (each voxel split in 8)"),
+                     ("thresholded_B", "Design B thresholded at &rho; = 0.5 (0/1 design)")]:
         if key in ch:
             m = ch[key]
-            crow.append([lab, f(m["mass"]), f(m["freq_Hz"][0], 1), f(m["alpha_min"], 1), f(max(m["pnorm_MPa"]), 1), f(m["max_vm_MPa"], 1), f(max(m["disp_mm"]), 3)])
+            a = f(m["alpha_min"], 1) if m["alpha_min"] is not None else "not computed"
+            crow.append([lab, f(m["mass"]), f(m["freq_Hz"][0], 1), a, f(max(m["pnorm_MPa"]), 1), f(m["max_vm_MPa"], 1), f(max(m["disp_mm"]), 3)])
     crow.append(["Reference: design B as analysed", f(B["mass"]), f(B["freq_Hz"][0], 1), f(B["alpha_min"], 1), f(max(B["pnorm_MPa"]), 1), f(B["max_vm_MPa"], 1), f(max(B["disp_mm"]), 3)])
     ctx["checks_table"] = tab(["Check", "mass [kg]", "f1 [Hz]", "&alpha;<sub>cr</sub>", "max p-norm [MPa]", "max &sigma;<sub>vm</sub> [MPa]", "max mount disp. [mm]"], crow)
     if "refined_S1" in ch:
@@ -182,6 +185,21 @@ def build(data, out, model):
     else:
         ctx["refine_f1"] = ctx["coarse_f1"] = "n/a (quick mode)"
     ctx["thr_f1"] = f(ch["thresholded_B"]["freq_Hz"][0], 1)
+    ctx["thr_mass"] = f(ch["thresholded_B"]["mass"])
+    if "refined_B" in ch:
+        rb = ch["refined_B"]
+        ctx["ref5_f1"] = f(rb["freq_Hz"][0], 1)
+        ctx["ref5_pct"] = f"{100 * (rb['freq_Hz'][0] / B['freq_Hz'][0] - 1):+.1f}"
+        ok5 = rb["freq_Hz"][0] >= lim["freq_min"]
+        ctx["ref5_verdict"] = ("still meets 100 Hz" if ok5 else
+                               "falls below the 100 Hz requirement: the voxel discretization overestimates the stiffness of the thin members, "
+                               "so the reported design meets the frequency requirement on its 10 mm analysis mesh but not on the refined mesh")
+        ctx["ref5_stress"] = f(max(rb["pnorm_MPa"]), 1)
+        ctx["ref5_margin"] = f"{100 * ((B['freq_Hz'][0] / rb['freq_Hz'][0]) ** 2 - 1):.0f}"
+    else:
+        ctx["ref5_f1"] = ctx["ref5_pct"] = ctx["ref5_stress"] = ctx["ref5_margin"] = "n/a"
+        ctx["ref5_verdict"] = "was not run (quick mode)"
+    ctx["a_conv"] = " &rarr; ".join(f"{r['alpha_LC2']:.0f}" for r in mc)
 
     figs = dict(
         fig_verification=("verification_convergence.png", "V3 and V4 relative error vs element length; bracket responses on the solid domain vs voxel size, normalized by the finest mesh."),

@@ -1,11 +1,16 @@
 {
   "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
   "platform": "Windows-10-10.0.26200-SP0",
+  "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+  "cpu_count": 16,
+  "mode": "final",
   "packages": {
     "numpy": "2.3.4",
     "scipy": "1.16.2",
     "jax": "0.10.2",
     "jaxlib": "0.10.2",
-    "PyYAML": "6.0.3"
+    "PyYAML": "6.0.3",
+    "matplotlib": "3.11.2",
+    "pytest": "9.2.0"
   }
 }

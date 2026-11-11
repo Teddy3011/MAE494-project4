@@ -24,7 +24,7 @@ def metrics(model, r):
     lim = model.cfg["limits"]
     disp = np.linalg.norm(r["disp"], axis=1)
     alpha = {f"LC{k + 1}": (1.0 / r["mu"][k]).tolist() for k in r["mu"]}
-    g = dict(zip(CONSTRAINTS, map(float, r["g"])))
+    g = {c: (float(v) if np.isfinite(v) else None) for c, v in zip(CONSTRAINTS, r["g"])}  # None = not computed
     return dict(
         mass=float(r["mass"]), mass_fraction=float(r["f"]),
         g=g, pnorm_MPa=(r["pnorm"] / 1e6).tolist(), max_vm_MPa=float(r["vm_max"].max() / 1e6),
@@ -90,6 +90,12 @@ def build(data):
     # manufacturing interpretation: threshold B at rho = 0.5 and re-analyse the 0/1 design
     rb = np.where(res["B"]["rho"] >= 0.5, 1.0, cfg["simp"]["x_min"])
     checks["thresholded_B"] = metrics(model, model.analyze(None, p, beta, grad=False, rho=rb))
+    # refinement of the reported design itself: B upsampled to h/2 (static + modal; buckling
+    # skipped because ~10^5 DOFs make the extra eigen-solves too slow for the pipeline)
+    if data["mode"] == "final":
+        fine = Bracket(cfg, h / 2)
+        checks["refined_B"] = metrics(fine, fine.analyze(None, p, beta, grad=False, buckling=False,
+                                                         rho=_upsample(res["B"]["rho"], model.nel)))
 
     # tables
     hist = [dict(run=k, **row) for k, rr in runs.items() for row in rr["history"]]
