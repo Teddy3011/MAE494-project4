@@ -1,33 +1,73 @@
-# Project 4 - engine-mount bracket. All SI units (m, N, Pa, kg, s).
-# Every modelling assumption lives here; change it here only.
+# Project 4 - engine-mount bracket, SIMP topology optimization on a voxel domain.
+# All SI units (m, N, Pa, kg, s). Every modelling assumption lives here.
+# "assumption" = team modelling choice, not an external fact. Sources: docs/index.md#references.
 
 seed: 0
 
-material:            # aluminium 6061-T6
+material:            # aluminium 6061-T6, typical values (ASM Handbook Vol. 2)
   E: 69.0e+9
   nu: 0.33
   rho: 2700.0
-  yield: 276.0e+6
+  yield: 276.0e+6    # typical, not a design allowable (MMPDS S-basis is lower)
 
-loads:
-  engine_mass: 120.0 # kg
-  g_factor: 3.0      # 3 g vertical static
+loads:               # assumption (project brief)
+  engine_mass: 120.0 # kg, carried entirely by this bracket (conservative)
+  g_factor: 3.0      # vertical static load factor -> 3*120*9.81 = 3531.6 N downward
   g: 9.81
-  torque: 400.0      # N*m reaction at the top-plate mount point
+  torque: 400.0      # N*m engine torque reaction about the y axis (crankshaft parallel to y),
+                     # applied in both senses (load cases LC2 = vertical + T, LC3 = vertical - T)
 
-limits:
-  safety_factor: 1.5 # R1: sigma_allow = yield / 1.5 = 184 MPa
-  pnorm_p: 8         # default (not from spec): p-norm exponent for aggregated von Mises
-  disp_max: 0.5e-3   # R2
-  freq_min: 100.0    # R3, Hz
-  buckling_min: 3.0  # R4
+limits:              # assumption (project brief); optimizer form g_i <= 0
+  safety_factor: 1.5 # sigma_allow = yield / 1.5 = 184 MPa
+  disp_max: 0.5e-3   # norm of the mean translation of the engine interface, every load case
+  freq_min: 100.0    # Hz, lowest natural frequency including the engine as lumped mass
+  buckling_min: 3.0  # linear buckling load factor, LC2 and LC3 prestress
 
-design:
-  t_min: 3.0e-3      # R5 bounds on all thickness-like variables
-  t_max: 20.0e-3
+geometry:            # assumption: design domain x (length) by y (width) by z (height, up)
+  domain: [0.200, 0.120, 0.160]
+  pad_size: 0.040        # four square bolt pads in the base corners, clamped on the bottom face
+  pad_thickness: 0.020   # passive solid above each pad
+  interface_size: [0.080, 0.040]  # engine interface patch, centred on the top face
+  interface_thickness: 0.020      # passive solid below the patch
+
+mesh:
+  h_report: 0.010    # voxel size for principal optimizations and all reported numbers
+  h_dev: 0.020       # coarse mesh: multistart study and mesh comparison
+  h_convergence: [0.040, 0.020, 0.010, 0.0066666666666666671]
+
+simp:
+  E_min_ratio: 1.0e-9   # stiffness floor E_min/E0, keeps K nonsingular
+  x_min: 1.0e-3         # lower bound on design variables (keeps rho^q differentiable)
+  stress_q: 0.5         # stress relaxation sigma = rho^q sigma_solid (Le et al. 2010)
+  mass_knee: 0.1        # modal-mass interpolation knee, suppresses spurious void modes
+  filter_radius: 0.030  # density filter radius in metres (mesh independent)
+  eta: 0.5              # Heaviside projection threshold
+  # continuation stages: [SIMP p, projection beta, max MMA iterations]
+  # p starts at 2: at p = 1 gray designs are artificially efficient and plain MMA overshoots
+  # into an all-void state it cannot leave (observed in development, see report).
+  continuation: [[2.0, 1.0, 40], [2.5, 1.0, 30], [3.0, 1.0, 30], [3.0, 2.0, 30], [3.0, 4.0, 40], [3.0, 8.0, 100]]
+
+aggregation:
+  stress_P: 8         # p-norm exponent over all Gauss points (upper bound on the true maximum)
+  ks_freq: 50.0       # KS parameter over the lowest n_modes eigenvalue ratios
+  ks_buckling: 50.0
+  n_modes: 6
+  n_buckling_modes: 4
+
+optimizer:
+  move: 0.1           # MMA move limit (fraction of the variable range)
+  move_final: 0.03    # smaller move limit in the last (beta = 8) stage to damp oscillation
+  tol_change: 2.0e-3  # stage ends when max |dx| < tol_change and max g < tol_feas
+  tol_feas: 1.0e-3
+  starts: [1.0, 0.5, 0.3]   # uniform initial design-variable values for the multistart
+
+nonlinear_study:
+  # Supplementary N1 study, clearly separate from the main problem: the frequency requirement
+  # removed (e.g. a soft-mounted engine), so stress/displacement drive a slender design, then
+  # the buckling requirement tightened to see what stability costs. Main results use 3.0.
+  alpha_sweep: [10.0, 15.0, 20.0]
 
 solver:
-  # Default (not from spec): Wilson-Taylor incompatible modes on the hex8.
-  # Plain fully-integrated hex8 shear-locks in thin walls (see verification V2b).
-  # ANSYS SOLID185 uses enhanced strain by default, which this matches more closely.
+  # Hex8 with Wilson-Taylor incompatible modes. Plain fully-integrated hex8 shear-locks
+  # in bending (verification V2b). ANSYS SOLID185 also defaults to enhanced strain.
   incompatible_modes: true
