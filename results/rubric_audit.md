@@ -85,9 +85,7 @@ masses are non-monotone (local optima), which weakens it as a cost-of-stability 
 | Loads from results.json, phone width, fast render, error message | checked on a local server: no console errors, no horizontal scroll at 375 px, explicit 404 message |
 
 Remaining weaknesses:
-- GitHub Pages is not enabled yet and nothing after the Stage 1 commit has been pushed (needs the repository owner).
-- The live site has not been checked in a private browser window.
-- MathJax rendering was checked locally (94 formulas, no errors), not yet on the live site.
+- The live site (https://teddy3011.github.io/MAE494-project4/) was checked on 2026-11-15: page, viewer data, all eight figures and 96 MathJax formulas load with no console errors. It has not been checked in a private browser window by the team.
 
 ## Reproducibility (5)
 

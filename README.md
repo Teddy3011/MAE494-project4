@@ -6,7 +6,7 @@ The 3D hex8 finite-element solver, all adjoint sensitivities and the optimizer (
 from scratch: NumPy/SciPy sparse for global algebra, JAX for element-level automatic differentiation.
 
 Report and interactive 3D comparison: `docs/index.html`, served by GitHub Pages from `main` / `docs`
-(https://teddy3011.github.io/MAE494-project4/ once Pages is enabled).
+(https://teddy3011.github.io/MAE494-project4/).
 
 ## Reproduce
 
