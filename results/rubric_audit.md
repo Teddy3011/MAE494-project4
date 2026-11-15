@@ -12,6 +12,7 @@ Report = `docs/index.html` (generated from `src/site_template.html` by `run_all.
 | Variables with units and bounds | Section 2 "Design variables" | `config.yaml` `simp.x_min` |
 | Objective and constraints as explicit formulas | Section 2 "Optimization problem" (9 scaled constraints, g <= 0) | `src/bracket.py` `analyze` |
 | Sourced limits or labelled assumptions | Section 2 source table; `config.yaml` comments | - |
+| Mode descriptions | Section 8 results table (engine translation axis, engine share of modal mass) | `metrics.json` -> `designs.*.modes` |
 | Coordinate system, loads, supports | Section 2 table; viewer markers | V5.eq*, V5.em*, V5.T |
 
 Remaining weakness: all limits are project-brief assumptions; no external design standard sets them.
@@ -27,7 +28,7 @@ Remaining weakness: all limits are project-brief assumptions; no external design
 | Gradient checks | Section 5 | `results/gradient_check.csv` |
 
 Remaining weaknesses:
-- The optimized design's first frequency drops by about 5 % on a 5 mm mesh, to below 100 Hz (`metrics.json` -> `checks.refined_B`). This is reported in sections 1, 8 and 10.
+- The first frequency is mesh dependent (about 5 % lower on a 5 mm mesh). The optimizer therefore targets 107 Hz (`config.yaml` `limits.freq_design`); the reported design still meets 100 Hz on the 5 mm mesh (`metrics.json` -> `checks.refined_B`). Convergence beyond 5 mm and buckling at 5 mm were not checked.
 - The solid-block buckling factor does not converge (singular prestress); reported in section 4.
 - No comparison with commercial FE software (ANSYS results were never supplied).
 
@@ -42,7 +43,7 @@ Remaining weaknesses:
 | Independent method (i) check | Section 5 | `results/gradient_method_i.csv`; `test_gradients_method_i` |
 | Cost vs finite differences | Section 5 cost table | `metrics.json` -> `gradient_cost` |
 
-Remaining weakness: the cost comparison for finite differences is an estimate (2n x one measured analysis), not a measured full FD gradient.
+The complete central-difference gradient (all variables, all ten functions) is measured on the 20 mm mesh and compared component by component (section 5, "Complete finite-difference gradient"). Remaining weakness: on the 10 mm mesh the finite-difference cost is an estimate (2n x one measured analysis).
 
 ## Optimization (15)
 
@@ -56,7 +57,7 @@ Remaining weakness: the cost comparison for finite differences is an estimate (2
 
 Remaining weaknesses:
 - KKT stationarity is a few percent, not ~0; the design is a converged local design, not a certified KKT point.
-- The final iterate is chosen as the best feasible iterate of the last stage (stated per run).
+- If the last iterate is infeasible, the best feasible iterate of the last stage is reported instead (stated per run in section 6).
 
 ## Nonlinear component (15)
 
@@ -96,7 +97,7 @@ Remaining weaknesses:
 | Pinned dependencies, seeds, environment | `requirements.txt` (pip freeze), `config.yaml` `seed`, `results/environment.json` |
 | README with exact steps | `README.md` |
 
-Remaining weakness: tested on one Windows machine only; not yet re-run from a fresh clone.
+Remaining weakness: tested on one Windows machine only. From a fresh clone with a new virtual environment, `pip install -r requirements.txt` and `pytest` were re-run; the full `run_all.py` was run in the working copy, not in the fresh clone.
 
 ## Presentation and clarity (5)
 

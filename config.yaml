@@ -21,6 +21,10 @@ limits:              # assumption (project brief); optimizer form g_i <= 0
   safety_factor: 1.5 # sigma_allow = yield / 1.5 = 184 MPa
   disp_max: 0.5e-3   # norm of the mean translation of the engine interface, every load case
   freq_min: 100.0    # Hz, lowest natural frequency including the engine as lumped mass
+  freq_design: 107.0 # Hz, value the optimizer constrains on the analysis mesh. Margin for voxel
+                     # discretization error: a design optimized to exactly 100 Hz on the 10 mm mesh
+                     # gave 94.8 Hz on a 5 mm mesh (ratio 1.057), so 107 = 100 x 1.057 + 1 % cushion.
+                     # Pass/fail in every table is still judged against freq_min.
   buckling_min: 3.0  # linear buckling load factor, LC2 and LC3 prestress
 
 geometry:            # assumption: design domain x (length) by y (width) by z (height, up)

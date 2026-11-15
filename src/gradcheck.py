@@ -141,6 +141,30 @@ def method_i_check(cfg, h=0.04, tol=1e-6):
 
 # ------------------------------------------------------------------ cost
 
+def full_fd(cfg, h=0.02, eps=1e-4):
+    """Measured (not estimated) central-difference gradient of all ten functions with respect to
+    every design variable, compared with the adjoint gradient component by component."""
+    m = Bracket(cfg, h)
+    rng = np.random.default_rng(cfg["seed"] + 2)
+    x = rng.uniform(0.25, 0.85, m.n)
+    m.analyze(x, P_CHECK, BETA_CHECK)  # warm-up
+    t = time.perf_counter()
+    r = m.analyze(x, P_CHECK, BETA_CHECK)
+    t_adj = time.perf_counter() - t
+    adj = np.vstack([r["df"], r["dg"]])
+    fd = np.zeros_like(adj)
+    t = time.perf_counter()
+    for j in range(m.n):
+        e = np.zeros(m.n)
+        e[j] = eps
+        fd[:, j] = (_values(m, x + e) - _values(m, x - e)) / (2 * eps)
+    t_fd = time.perf_counter() - t
+    rows = [dict(function=fn, rel_error=float(np.linalg.norm(adj[i] - fd[i]) / np.linalg.norm(fd[i])),
+                 max_abs_diff=float(np.max(np.abs(adj[i] - fd[i]))), grad_norm=float(np.linalg.norm(fd[i])))
+            for i, fn in enumerate(FUNCS)]
+    return dict(h=h, n=m.n, eps=eps, seconds_fd=t_fd, seconds_adjoint=t_adj, analyses=2 * m.n, rows=rows)
+
+
 def cost(cfg, hs=(0.02, 0.01)):
     out = []
     rng = np.random.default_rng(cfg["seed"])

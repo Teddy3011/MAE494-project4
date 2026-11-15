@@ -29,7 +29,7 @@ def metrics(model, r):
         mass=float(r["mass"]), mass_fraction=float(r["f"]),
         g=g, pnorm_MPa=(r["pnorm"] / 1e6).tolist(), max_vm_MPa=float(r["vm_max"].max() / 1e6),
         max_vm_by_lc_MPa=(r["vm_max"].max(0) / 1e6).tolist(), disp_mm=(disp * 1e3).tolist(),
-        freq_Hz=r["freq"].tolist(), alpha=alpha,
+        freq_Hz=r["freq"].tolist(), modes=_mode_descriptions(model, r), alpha=alpha,
         alpha_min=float(min(a[0] for a in alpha.values())) if alpha else None,
         allow=dict(stress_MPa=model.sig_allow / 1e6, disp_mm=lim["disp_max"] * 1e3, freq_Hz=lim["freq_min"],
                    alpha=lim["buckling_min"]),
@@ -37,6 +37,20 @@ def metrics(model, r):
         solid_fraction=float(np.mean(r["rho"] >= 0.5)),
         seconds=float(sum(r["timings"].values())), timings={k: float(v) for k, v in r["timings"].items()},
         ne=int(model.ne), n=int(model.n), h=float(model.h))
+
+
+def _mode_descriptions(model, r):
+    """Automatic description of each vibration mode from the motion of the engine interface:
+    dominant translation axis and the engine's share of the modal mass (phi is M-normalized,
+    so m_engine |t|^2 <= 1; a small share means a rocking or local mode)."""
+    out = []
+    m_eng = model.cfg["loads"]["engine_mass"]
+    for i in range(r["phi"].shape[1]):
+        t = model.Wavg.T @ model.full(r["phi"][:, i])
+        share = t ** 2 / max(float(t @ t), 1e-300)
+        ax = int(np.argmax(share))
+        out.append(dict(axis="xyz"[ax], axis_share=float(share[ax]), engine_mass_share=float(m_eng * (t @ t))))
+    return out
 
 
 def constraint_table(m, alpha_req=None):

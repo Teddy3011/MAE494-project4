@@ -96,7 +96,7 @@ class Bracket:
         fem.check_material(self.E0, self.nu)
         self.sig_allow = mat["yield"] / lim["safety_factor"]
         self.d_allow, self.alpha_req = lim["disp_max"], lim["buckling_min"]
-        self.lam_req = (2 * np.pi * lim["freq_min"]) ** 2
+        self.lam_req = (2 * np.pi * lim.get("freq_design", lim["freq_min"])) ** 2  # optimizer target incl. mesh margin
         self.eps, self.q, self.knee, self.eta = simp["E_min_ratio"], simp["stress_q"], simp["mass_knee"], simp["eta"]
         self.x_min = simp["x_min"]
         self.P, self.s_f, self.s_b = agg["stress_P"], agg["ks_freq"], agg["ks_buckling"]

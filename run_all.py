@@ -94,13 +94,14 @@ def main():
         mi = GC.method_i_check(cfg)
         write_csv(mi, RES / "gradient_method_i.csv")
         gcost = GC.cost(cfg, hs=(cfg["mesh"]["h_dev"],) if a.quick else (cfg["mesh"]["h_dev"], cfg["mesh"]["h_report"]))
+        ffd = None if a.quick else GC.full_fd(cfg, cfg["mesh"]["h_dev"])
         print("optimizations ...", flush=True)
         jobs = job_list(cfg, a.quick)
         with ProcessPoolExecutor(max_workers=min(len(jobs), os.cpu_count() or 1)) as ex:
             runs = {r["label"]: r for r in ex.map(_job, [(k, cfg, v) for k, v in jobs.items()])}
         with open(store, "wb") as fh:
             pickle.dump(dict(mode=mode, cfg=cfg, rows=rows, conv=conv, mesh_conv=mesh_conv, grows=grows, sweep=sweep,
-                             method_i=mi, gcost=gcost, runs=runs, t_pipeline=time.perf_counter() - t0), fh)
+                             method_i=mi, gcost=gcost, full_fd=ffd, runs=runs, t_pipeline=time.perf_counter() - t0), fh)
 
     from src import report
     with open(store, "rb") as fh:

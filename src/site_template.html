@@ -42,12 +42,13 @@
 Starting from a solid 200&times;120&times;160&nbsp;mm block, a density-based (SIMP) topology optimization on
 @@ne@@ voxels of @@h_mm@@&nbsp;mm reduces the mass to @@mass_B@@&nbsp;kg with @@feasible_B@@.
 The finite-element solver, all adjoint sensitivities and the optimizer are written from scratch for this project.
-Near-active at the optimum: <b>@@active_B@@</b>. The 100&nbsp;Hz frequency requirement, with the engine
+Near-active at the optimum: <b>@@active_B@@</b>. The frequency requirement, with the engine
 included as a lumped mass, sizes the bracket. Linear buckling (the nonlinear component N1) is far from active:
 adding the constraint \(\alpha_{cr}\ge 3\) changes the mass by @@dm_AB@@&nbsp;% (@@mass_A@@ &rarr; @@mass_B@@&nbsp;kg),
 because the frequency-sized members are stocky (\(\alpha_{cr}\) = @@alpha_A@@ without the constraint).
 A supplementary study in section 7 removes the frequency requirement to show when stability does matter.
-<b>Caveat:</b> re-analysed on a 5&nbsp;mm mesh, the optimized design's first frequency is @@ref5_f1@@&nbsp;Hz (@@ref5_pct@@&nbsp;%), so it
+<b>Mesh margin:</b> coarse voxels overestimate stiffness, so the optimizer constrains the first frequency to @@f_design@@&nbsp;Hz on the
+@@h_mm@@&nbsp;mm mesh. Re-analysed on a 5&nbsp;mm mesh, the optimized design's first frequency is @@ref5_f1@@&nbsp;Hz (@@ref5_pct@@&nbsp;%), so it
 @@ref5_verdict@@ (section 8).</p>
 
 <section id="viewer">
@@ -109,7 +110,7 @@ voxels with \(\bar\rho\to 0\) are void. Physical densities \(\bar\rho\) follow f
 \begin{aligned}
 g_{\sigma,k} &= \frac{1}{\sigma_{allow}}\Big(\sum_{e}\sum_{\text{GP}}\big(\bar\rho_e^{\,q}\,\sigma_{vm}\big)^{P}\Big)^{1/P}-1, & k&=1,2,3, & \sigma_{allow}&=276/1.5=@@sig_allow@@\ \text{MPa}\\
 g_{d,k} &= \frac{\lVert\bar{\mathbf u}_k\rVert}{d_{allow}}-1, \quad \bar{\mathbf u}_k=\textstyle\sum_{n\in\Gamma_{if}} w_n\mathbf u_{n,k}, & k&=1,2,3, & d_{allow}&=0.5\ \text{mm}\\
-g_{f} &= 1-\mathrm{KS}_{\min}\big(\lambda_1/\lambda_{req},\dots,\lambda_6/\lambda_{req}\big), & \lambda_{req}&=(2\pi\cdot 100)^2=@@lam_req@@\ \text{s}^{-2} \\
+g_{f} &= 1-\mathrm{KS}_{\min}\big(\lambda_1/\lambda_{req},\dots,\lambda_6/\lambda_{req}\big), & \lambda_{req}&=(2\pi f_{design})^2=@@lam_req@@\ \text{s}^{-2},\ f_{design}=@@f_design@@\ \text{Hz} \\
 g_{b,k} &= \mathrm{KS}_{\max}\big(\alpha_{req}\mu_{1,k},\dots,\alpha_{req}\mu_{4,k}\big)-1, \quad \mu=1/\alpha, & k&=2,3, & \alpha_{req}&=3
 \end{aligned}
 \]
@@ -120,6 +121,9 @@ repeated or cross [22]. The p-norm (\(P=8\)) over all Gauss points of all voxels
 \(g_\sigma\le 0\) guarantees the relaxed maximum stress is below the allowable. The buckling factor of LC1 needs no
 constraint: its prestress is the mean of LC2 and LC3, and for the Rayleigh quotient
 \(\mu_1=\max_\psi \psi^T(-K_G^{(1)})\psi/\psi^TK\psi \le \max(\mu_2,\mu_3)\), so \(\alpha_{LC1}\ge\min(\alpha_{LC2},\alpha_{LC3})\).</p>
+<p><b>Frequency design margin.</b> The requirement is \(f_1\ge100\) Hz. The optimizer constrains \(f_1\ge f_{design}=\) @@f_design@@ Hz on the
+@@h_mm@@ mm analysis mesh, because a first design optimized to exactly 100 Hz on that mesh gave 94.8 Hz on a 5 mm mesh (ratio 1.057; commit
+<code>8189727</code>). The target is 100 &times; 1.057 plus a 1 % cushion. This tightens the constraint; pass/fail in every table is judged against 100 Hz.</p>
 <p>All limits (184 MPa, 0.5 mm, 100 Hz, &alpha; &ge; 3, 3 g, 400 N&middot;m) come from the project brief and are <b>team design
 assumptions</b>, not code requirements. The safety factor 1.5 on yield matches the common aerospace ultimate factor
 [14 CFR 25.303] but is applied here to typical yield as a team choice.</p>
@@ -232,6 +236,9 @@ only happens if the gradient is exact.</p>
 <p>The full pipeline (filter, projection, dense assembly, <code>jnp.linalg.solve</code>, Cholesky-reduced <code>eigh</code> for frequencies
 and buckling) written in JAX and differentiated in reverse mode, on the 40 mm mesh (@@method_i_n@@ variables), every gradient component compared:</p>
 @@method_i_table@@
+<h3>Complete finite-difference gradient</h3>
+<p>@@full_fd_note@@</p>
+@@full_fd_table@@
 <h3>Cost</h3>
 @@cost_table@@
 <p>All ten gradients cost about the same as one extra solve per output (the factorization is reused), so the adjoint cost grows
@@ -292,13 +299,12 @@ Stress p-norm values are the constrained aggregates; "true max" is the largest r
 @@results_table@@
 <h3>Robustness checks</h3>
 @@checks_table@@
-<p><b>Mesh refinement.</b> The frequency of an optimized design depends on the voxel size. The 20 mm design S1 meets 100 Hz on its own mesh
-(@@coarse_f1@@ Hz) but gives @@refine_f1@@ Hz when every voxel is split into eight. The reported 10 mm design B gives @@ref5_f1@@ Hz on a 5 mm mesh
-(@@ref5_pct@@ %), so it @@ref5_verdict@@. Coarse voxels make the thin, partly gray members too stiff in bending. Stress (max p-norm
-@@ref5_stress@@ MPa) and displacement still pass on the 5 mm mesh. The design conclusions hold at both resolutions (the frequency
-drives the mass, buckling is far from active, a four-legged frame between the pads and the engine interface), but the 100 Hz margin does not.
-A design for production would be optimized against a frequency target about @@ref5_margin@@ % higher in &omega;&sup2; (calibrated by this check)
-or directly on the finer mesh; neither was run here, so the reported numbers are those of the 10 mm model.</p>
+<p><b>Mesh refinement.</b> The frequency of an optimized design depends on the voxel size: coarse voxels make the thin, partly gray members
+too stiff in bending. The 20 mm design S1 gives @@coarse_f1@@ Hz on its own mesh and @@refine_f1@@ Hz when every voxel is split into eight.
+The reported 10 mm design B gives @@ref5_f1@@ Hz on a 5 mm mesh (@@ref5_pct@@ %, ratio @@ref5_ratio@@), so it @@ref5_verdict@@.
+Stress (max p-norm @@ref5_stress@@ MPa on the 5 mm mesh) and displacement keep large margins. The 5 mm check covers the static and modal
+responses; buckling was not recomputed at 5 mm (about 10<sup>5</sup> DOFs), and its margin is two orders of magnitude. A further refinement
+would lower the frequency again by a smaller amount, which was not quantified.</p>
 <p><b>0/1 interpretation.</b> Thresholding B at &rho; = 0.5 gives @@thr_mass@@ kg with f<sub>1</sub> = @@thr_f1@@ Hz: removing the gray voxels, which carry
 mass but little stiffness under SIMP, raises the frequency. Thresholding is used only for this check and for display.</p>
 @@fig_geometry@@
@@ -319,8 +325,8 @@ buckling capacity of thin members can be well below the linear estimate; here th
 <li>Supports are bonded pads; real bolts, contact, preload and slip are not modelled. Loads are uniform/linear tractions on an idealized patch.</li>
 <li>Stress at the clamped pad edges and the patch corners is singular in linear elasticity (section 4), so the maximum stress is mesh dependent.
 The relaxed, aggregated stress is an engineering measure, not a certification value.</li>
-<li>Voxel resolution @@h_mm@@ mm: surfaces are stair-stepped, and the first frequency of the optimized design drops to @@ref5_f1@@ Hz on a 5 mm mesh
-(section 8). The design is feasible on its analysis mesh; a production design needs a frequency margin or a finer mesh.</li>
+<li>Voxel resolution @@h_mm@@ mm: surfaces are stair-stepped and the first frequency is mesh dependent. The design is optimized to
+@@f_design@@ Hz on the @@h_mm@@ mm mesh and gives @@ref5_f1@@ Hz on a 5 mm mesh (section 8); convergence beyond 5 mm was not checked.</li>
 <li>Intermediate densities remain at boundaries (see grayness in the results table); the thresholded check quantifies the effect.</li>
 <li>No fatigue (engine vibration is cyclic), no thermal loads, no manufacturing validation. 276 MPa is a typical yield strength;
 a design-allowable (MMPDS) value is lower.</li>
@@ -340,6 +346,9 @@ element-by-element assembly (now check V5.kg) exposed it.</li>
 <li><b>Engine mass applied to the wrong DOFs in the method (i) check.</b> The dense check sliced an already-reduced matrix a second time; the
 frequency value disagreed with the sparse solver, and <code>scipy.linalg.eigh</code> on the sparse model's matrices showed the sparse solver was right.</li>
 <li><b>YAML parsed <code>69.0e9</code> as a string</b> (YAML 1.1 needs an exponent sign); the first test run failed and the config now uses <code>69.0e+9</code>.</li>
+<li><b>Design infeasible on a finer mesh.</b> The first complete run constrained the frequency to exactly 100 Hz on the 10 mm mesh. The
+refinement check gave 94.8 Hz on a 5 mm mesh, so the design did not meet the requirement. The optimizer now targets @@f_design@@ Hz and the
+refinement check is part of <code>run_all.py</code>.</li>
 <li><b>Badly scaled frequency constraint.</b> The first form \(\lambda_{req}/\lambda_1-1\) exploded as the design thinned and MMA oscillated at +20;
 it was replaced by the bounded, nearly linear \(1-\mathrm{KS}_{\min}(\lambda_i/\lambda_{req})\) (same feasible set).</li>
 </ul>

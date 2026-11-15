@@ -23,7 +23,7 @@ python -m venv .venv
 (`index.html`, `assets/results.json`, `assets/figures/`). It exits non-zero if any verification row or
 gradient check fails. Final mode runs the two principal optimizations on the 10 mm mesh and nine
 20 mm studies in parallel processes; on a 16-thread laptop (see `results/environment.json`) it takes
-about an hour. `python run_all.py --quick` checks the pipeline in a few minutes (all on 20 mm, shortened
+about 50 minutes. `python run_all.py --quick` checks the pipeline in a few minutes (all on 20 mm, shortened
 continuation; the page is then stamped "QUICK MODE" and is not for submission).
 `python run_all.py --report-only` rebuilds figures and the page from `results/runs.pkl`.
 

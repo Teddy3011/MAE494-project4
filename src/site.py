@@ -71,7 +71,21 @@ def build(data, out, model):
     ctx["active_B"] = ", ".join(LABEL[c] for c in actB) or "none"
     ctx["W"] = f"{cfg['loads']['engine_mass'] * cfg['loads']['g'] * cfg['loads']['g_factor']:.1f}"
     ctx["sig_allow"] = f"{cfg['material']['yield'] / lim['safety_factor'] / 1e6:.0f}"
-    ctx["lam_req"] = f"{(2 * np.pi * lim['freq_min']) ** 2:.4g}"
+    fdes = lim.get("freq_design", lim["freq_min"])
+    ctx["lam_req"] = f"{(2 * np.pi * fdes) ** 2:.4g}"
+    ctx["f_design"] = f"{fdes:g}"
+    ffd = data.get("full_fd")
+    if ffd:
+        ctx["full_fd_table"] = tab(["Function", "||g<sub>adj</sub>-g<sub>FD</sub>||/||g<sub>FD</sub>||", "max |difference|", "||g<sub>FD</sub>||"],
+                                   [[r["function"], f(r["rel_error"]), f(r["max_abs_diff"]), f(r["grad_norm"], 5)] for r in ffd["rows"]])
+        ctx["full_fd_note"] = (f"Measured on the {ffd['h'] * 1e3:.0f} mm mesh: the complete central-difference gradient "
+                               f"({ffd['analyses']} analyses for {ffd['n']} variables, step {ffd['eps']:g}) took {ffd['seconds_fd']:.0f} s; "
+                               f"the adjoint gradient of all ten functions, including the analysis, took {ffd['seconds_adjoint']:.2f} s "
+                               f"({ffd['seconds_fd'] / ffd['seconds_adjoint']:.0f}&times; faster). Component-by-component agreement:")
+    else:
+        ctx["full_fd_table"], ctx["full_fd_note"] = "", "The measured full finite-difference gradient is skipped in quick mode."
+    def modes(k):
+        return "; ".join(f"{i + 1}: {m['axis']} ({100 * m['axis_share']:.0f} %, {100 * m['engine_mass_share']:.0f} %)" for i, m in enumerate(D[k]["modes"]))
 
     # results table: initial / A / B
     tI, tA, tB = constraint_table(I), constraint_table(A), constraint_table(B)
@@ -80,6 +94,7 @@ def build(data, out, model):
         rel = "&ge;" if n.startswith(("First", "Buck")) else "&le;"
         rows.append([f"{n} [{u}]", f"{f(vi, 2)} {status(oi)}", f"{f(va, 2)} {status(oa)}", f"{f(vb, 2)} {status(ob)}", f"{rel} {f(l, 2)}"])
     rows.append(["Frequencies 1-6 [Hz]"] + [", ".join(f"{v:.1f}" for v in D[k]["freq_Hz"]) for k in ("initial", "A", "B")] + [""])
+    rows.append(["Modes 1-6: engine translation axis (share of translation, engine share of modal mass)"] + [modes(k) for k in ("initial", "A", "B")] + [""])
     rows.append(["Solid fraction (&rho; &ge; 0.5)"] + [f(D[k]["solid_fraction"]) for k in ("initial", "A", "B")] + [""])
     rows.append(["Grayness mean 4&rho;(1-&rho;)"] + [f(D[k]["grayness"]) for k in ("initial", "A", "B")] + [""])
     rows.append(["One analysis, all responses [s]"] + [f(D[k]["seconds"], 2) for k in ("initial", "A", "B")] + [""])
@@ -191,13 +206,12 @@ def build(data, out, model):
         ctx["ref5_f1"] = f(rb["freq_Hz"][0], 1)
         ctx["ref5_pct"] = f"{100 * (rb['freq_Hz'][0] / B['freq_Hz'][0] - 1):+.1f}"
         ok5 = rb["freq_Hz"][0] >= lim["freq_min"]
-        ctx["ref5_verdict"] = ("still meets 100 Hz" if ok5 else
-                               "falls below the 100 Hz requirement: the voxel discretization overestimates the stiffness of the thin members, "
-                               "so the reported design meets the frequency requirement on its 10 mm analysis mesh but not on the refined mesh")
+        ctx["ref5_verdict"] = ("still meets the 100 Hz requirement on the refined mesh" if ok5 else
+                               "falls below the 100 Hz requirement on the refined mesh despite the design margin")
         ctx["ref5_stress"] = f(max(rb["pnorm_MPa"]), 1)
-        ctx["ref5_margin"] = f"{100 * ((B['freq_Hz'][0] / rb['freq_Hz'][0]) ** 2 - 1):.0f}"
+        ctx["ref5_ratio"] = f"{B['freq_Hz'][0] / rb['freq_Hz'][0]:.3f}"
     else:
-        ctx["ref5_f1"] = ctx["ref5_pct"] = ctx["ref5_stress"] = ctx["ref5_margin"] = "n/a"
+        ctx["ref5_f1"] = ctx["ref5_pct"] = ctx["ref5_stress"] = ctx["ref5_ratio"] = "n/a"
         ctx["ref5_verdict"] = "was not run (quick mode)"
     ctx["a_conv"] = " &rarr; ".join(f"{r['alpha_LC2']:.0f}" for r in mc)
 
