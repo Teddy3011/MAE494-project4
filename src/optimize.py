@@ -23,39 +23,47 @@ def kkt(r, x, xmin, xmax, active, tol_bound=1e-6, tol_active=1e-2):
     df, gA, dgA = r["df"], r["g"][active], r["dg"][active]
     lo, hi = x <= xmin + tol_bound, x >= xmax - tol_bound
     inner = ~(lo | hi)
-    lam, _ = nnls(-dgA[:, inner].T, df[inner])
+    # nnls with zero columns crashes inside SciPy, so handle "no near-active constraint" directly
+    lam = nnls(-dgA[:, inner].T, df[inner])[0] if len(active) else np.zeros(0)
     s = df + dgA.T @ lam  # = bound multipliers: +z_lo on lower bounds, -z_hi on upper bounds
     scale = np.linalg.norm(df)
     return dict(
         multipliers=dict(zip([CONSTRAINTS[i] for i in active], lam.tolist())),
         stationarity=float(np.linalg.norm(s[inner]) / scale),
         bound_sign_violation=float((np.linalg.norm(np.minimum(s[lo], 0)) + np.linalg.norm(np.maximum(s[hi], 0))) / scale),
-        primal_violation=float(max(0.0, gA.max())),
-        complementarity=float(np.max(np.abs(lam * gA))),
+        primal_violation=float(max(0.0, gA.max())) if len(gA) else 0.0,
+        dual_feasible=bool(np.all(lam >= 0)),
+        complementarity=float(np.max(np.abs(lam * gA))) if len(gA) else 0.0,
         n_lower=int(lo.sum()), n_upper=int(hi.sum()), n_inner=int(inner.sum()),
     )
 
 
-def run(cfg, h, x0, use_buckling=True, use_freq=True, label="", log=print):
-    """Optimize from the uniform design x = x0. Returns a dict with the final design,
-    a re-evaluation on a fresh model instance, KKT residuals and the full history.
+def run(cfg, h, x0, use_buckling=True, use_freq=True, label="", log=print, stages=None):
+    """Optimize from x0 (a uniform value, or a full design vector for a warm start).
+    Returns the final design, a re-evaluation on a fresh model instance, KKT residuals and
+    the full history.
 
-    The reported design is the last iterate if it is feasible (max g <= tol_feas);
-    otherwise the lowest-mass feasible iterate of the final stage (flagged in the result).
+    stages: list of [p, beta, max_iterations] or [p, beta, max_iterations, move]; default
+    simp.continuation. Without a move entry, the last stage uses optimizer.move_final and the
+    others optimizer.move. The last stage uses the tighter tol_feas_final / tol_change_final.
+    The reported design is the last iterate if it is feasible (max g <= tol_feas_final);
+    otherwise the lowest-mass feasible iterate of the final stage. Both are kept.
     """
     t_start = time.perf_counter()
     model = Bracket(cfg, h)
     opt, simp = cfg["optimizer"], cfg["simp"]
     active = active_set(use_buckling, use_freq)
-    stages = simp["continuation"]
+    stages = stages or simp["continuation"]
     xmin = simp["x_min"]
-    x = np.full(model.n, float(x0))
+    x = np.array(x0, float) if np.ndim(x0) else np.full(model.n, float(x0))
     mma = MMA(np.full(model.n, xmin), np.ones(model.n), move=opt["move"])
     hist, it, lam, best = [], 0, None, None
-    for stage, (p, beta, maxit) in enumerate(stages):
+    for stage, (p, beta, maxit, *_) in enumerate(stages):
         mma.reset()
         last = stage == len(stages) - 1
-        mma.move = opt["move_final"] if last else opt["move"]
+        mma.move = stages[stage][3] if len(stages[stage]) > 3 else (opt["move_final"] if last else opt["move"])
+        tol_feas = opt["tol_feas_final"] if last else opt["tol_feas"]
+        tol_change = opt["tol_change_final"] if last else opt["tol_change"]
         for _ in range(int(maxit)):
             t = time.perf_counter()
             r = model.analyze(x, p, beta, buckling=True, buckling_grad=use_buckling)
@@ -74,11 +82,11 @@ def run(cfg, h, x0, use_buckling=True, use_freq=True, label="", log=print):
                 log(f"[{label}] it {it:3d} st {stage} p={p} b={beta} mass={r['mass']:.3f} kg "
                     f"gmax={np.max(r['g'][active]):+.4f} f1={row['f1']:.1f} Hz a={min(row['alpha_LC2'], row['alpha_LC3']):.2f} "
                     f"dx={change:.3f} {row['seconds']:.1f}s")
-            feasible = np.max(r["g"][active]) <= opt["tol_feas"]
+            feasible = np.max(r["g"][active]) <= tol_feas
             if last and feasible and (best is None or r["f"] < best[0]):
                 best = (r["f"], x.copy(), it, lam.copy())
             it += 1
-            if change < opt["tol_change"] and feasible:
+            if change < tol_change and feasible:
                 break
             x = xnew
     p, beta = stages[-1][:2]
@@ -87,13 +95,14 @@ def run(cfg, h, x0, use_buckling=True, use_freq=True, label="", log=print):
     # independent re-evaluation on a fresh model instance
     fresh = Bracket(cfg, h)
     fin = fresh.analyze(x, p, beta)
+    last = dict(x=x.copy(), mass=float(fin["mass"]), max_g=float(np.max(fin["g"][active])), iteration=it)
     chosen = "last iterate"
-    if np.max(fin["g"][active]) > opt["tol_feas"] and best is not None:
+    if np.max(fin["g"][active]) > opt["tol_feas_final"] and best is not None:
         _, x, best_it, lam = best
         fin = fresh.analyze(x, p, beta)
         chosen = f"best feasible iterate of the final stage (iteration {best_it})"
     log(f"[{label}] done: {it} iterations, {t_opt:.0f} s, mass {fin['mass']:.4f} kg, max g {np.max(fin['g'][active]):+.2e} ({chosen})")
     return dict(label=label, h=h, x0=x0, use_buckling=use_buckling, use_freq=use_freq, active=active, x=x,
-                final=fin, history=hist, chosen=chosen,
+                final=fin, history=hist, chosen=chosen, last=last, stages=[list(s_) for s_ in stages],
                 kkt=kkt(fin, x, xmin, 1.0, active), mma_multipliers=dict(zip([CONSTRAINTS[i] for i in active], lam.tolist())),
                 seconds=t_opt, iterations=it, model=fresh)

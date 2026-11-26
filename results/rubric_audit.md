@@ -28,7 +28,7 @@ Remaining weakness: all limits are project-brief assumptions; no external design
 | Gradient checks | Section 5 | `results/gradient_check.csv` |
 
 Remaining weaknesses:
-- The first frequency is mesh dependent (about 5 % lower on a 5 mm mesh). The optimizer therefore targets 107 Hz (`config.yaml` `limits.freq_design`); the reported design still meets 100 Hz on the 5 mm mesh (`metrics.json` -> `checks.refined_B`). Convergence beyond 5 mm and buckling at 5 mm were not checked.
+- The first frequency is mesh dependent. The design is selected by a target sweep (`sweep` in `config.yaml`, `select()` in `run_all.py`) and meets 100 Hz on the 10 mm mesh and on the nested 5 mm mesh (`metrics.json` -> `checks.refined_B`), but gives below 100 Hz on a 6.67 mm mesh with both density transfers (`checks.mid_B`, `checks.mid_B_nearest`). The 1 Hz margin on the 5 mm mesh is smaller than this mesh-to-mesh spread; mesh convergence is not shown, and buckling was not recomputed at 5 mm.
 - The solid-block buckling factor does not converge (singular prestress); reported in section 4.
 - No comparison with commercial FE software (ANSYS results were never supplied).
 
@@ -51,12 +51,14 @@ The complete central-difference gradient (all variables, all ten functions) is m
 |---|---|---|
 | Gradient-based algorithm, scaling | Section 6; `src/mma.py` | `test_mma_and_kkt_on_known_problem` |
 | Continuation, starts | Section 6 tables (3 starts + no-buckling run on 20 mm) | `optimization_history.csv` |
+| Final-stage settings changed one at a time | Section 6 "Final-stage settings we tried" | `results/convergence_study.csv` |
+| Design-target sweep with refined-mesh selection rule | Section 6 sweep table | `metrics.json` -> `selection`; `test_selection_rule_needs_refined_margin` |
 | Convergence history | Section 6 | `figures/optimization_history.png`, `constraint_history.png` |
 | Active constraints, multipliers, interpretation | Section 6 KKT tables | `metrics.json` -> `runs.A/B.kkt` |
 | Independent re-evaluation | Section 8 ("fresh model instance") | `src/optimize.py`, `src/report.py` |
 
 Remaining weaknesses:
-- KKT stationarity is a few percent, not ~0; the design is a converged local design, not a certified KKT point.
+- KKT stationarity is about 1 % for A and B (`metrics.json` -> `runs.A/B.kkt`), with correct bound signs and near-zero complementarity; this is a well-converged local design, not a certified optimum. Topology problems have many local optima.
 - If the last iterate is infeasible, the best feasible iterate of the last stage is reported instead (stated per run in section 6).
 
 ## Nonlinear component (15)
@@ -85,7 +87,7 @@ masses are non-monotone (local optima), which weakens it as a cost-of-stability 
 | Loads from results.json, phone width, fast render, error message | checked on a local server: no console errors, no horizontal scroll at 375 px, explicit 404 message |
 
 Remaining weaknesses:
-- The live site (https://teddy3011.github.io/MAE494-project4/) was checked on 2026-11-15: page, viewer data, all eight figures and 96 MathJax formulas load with no console errors. It has not been checked in a private browser window by the team.
+- The live site (https://teddy3011.github.io/MAE494-project4/) still shows the graded `6c272b2` version. The `student-polish` branch is local and unpushed; its page was checked on a local server (desktop and 375 px, no console errors, figures served, both animations, 114 MathJax formulas). Not checked in a private browser window by the team.
 
 ## Reproducibility (5)
 
@@ -95,10 +97,12 @@ Remaining weaknesses:
 | Pinned dependencies, seeds, environment | `requirements.txt` (pip freeze), `config.yaml` `seed`, `results/environment.json` |
 | README with exact steps | `README.md` |
 
-Remaining weakness: tested on one Windows machine only. From a fresh clone with a new virtual environment, `pip install -r requirements.txt` and `pytest` were re-run; the full `run_all.py` was run in the working copy, not in the fresh clone.
+Remaining weakness: tested on one Windows machine only. The full `run_all.py` (final mode, about 107 min) was run in the `student-polish` worktree; the fresh-clone install and `pytest` check dates from commit `4cfd53a`. The convergence study (`studies/convergence_study.py`, about 50 min) is separate from `run_all.py`.
 
 ## Presentation and clarity (5)
 
-The report follows the ten required sections. The in-class presentation itself is outside this repository.
-The team still needs to add its own statement of what it reviewed to the AI-use section (section 10):
-the page states only what the code checks, because the team's own review cannot be truthfully written for it.
+The report follows the ten required sections and was rewritten in a student voice, with a "What we learned" and a
+"Things that did not work" section. The in-class presentation itself is outside this repository.
+Open items for the team: names, contributions and review assignments are TODO placeholders in the report
+("Team and contributions") and in `STUDENT_REVIEW_CHECKLIST.md`. The sentence "The student team reviewed the
+sections identified in the contribution statement." should be added to the AI-use statement only after those reviews are done.

@@ -63,7 +63,24 @@ optimizer:
   move_final: 0.03    # smaller move limit in the last (beta = 8) stage to damp oscillation
   tol_change: 2.0e-3  # stage ends when max |dx| < tol_change and max g < tol_feas
   tol_feas: 1.0e-3
+  tol_feas_final: 1.0e-5    # last stage: reported design must satisfy every smooth constraint to 1e-5
+  tol_change_final: 5.0e-4  # last stage: stop when max |dx| < 5e-4 and feasible
   starts: [1.0, 0.5, 0.3]   # uniform initial design-variable values for the multistart
+
+sweep:
+  # Design-target sweep. The base design (A_base) is optimized with limits.freq_design. Each
+  # target then restarts from it with the final stages below, with and without buckling, and is
+  # re-analysed on a mesh with half the voxel size. The reported design is the lightest
+  # with-buckling candidate whose refined-mesh frequency is >= freq_min + refined_margin_hz and
+  # that passes every other check (see select() in run_all.py).
+  # Converged beta 8 designs lose about 5 % of f1 on the 5 mm mesh (convergence study case E1:
+  # 107.2 Hz -> 101.8 Hz), so targets near 106-107.5 Hz bracket the 101 Hz needed there.
+  targets: [106.0, 106.5, 107.0, 107.5]
+  refined_margin_hz: 1.0
+  # [p, beta, max iterations, move]. From studies/convergence_study.py: case E1 (beta 8, move 0.015)
+  # converged best (stationarity 0.8 %). Crisper beta 16/32 designs were up to 19 % lighter but
+  # converged worse and lost more frequency on the 5 mm mesh; we chose the converged design.
+  polish_stages: [[3.0, 8.0, 150, 0.015]]
 
 nonlinear_study:
   # Supplementary N1 study, clearly separate from the main problem: the frequency requirement

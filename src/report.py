@@ -34,9 +34,24 @@ def metrics(model, r):
         allow=dict(stress_MPa=model.sig_allow / 1e6, disp_mm=lim["disp_max"] * 1e3, freq_Hz=lim["freq_min"],
                    alpha=lim["buckling_min"]),
         grayness=float(np.mean(4 * r["rho"] * (1 - r["rho"]))),
+        connectivity=connectivity(model, r["rho"]),
         solid_fraction=float(np.mean(r["rho"] >= 0.5)),
         seconds=float(sum(r["timings"].values())), timings={k: float(v) for k, v in r["timings"].items()},
         ne=int(model.ne), n=int(model.n), h=float(model.h))
+
+
+def connectivity(model, rho, thr=0.5):
+    """6-connected components of the voxels with rho >= thr, and whether every passive
+    region (four bolt pads, engine interface) lies in the largest component."""
+    from scipy import ndimage
+    nx, ny, nz = model.nel
+    solid = (rho >= thr).reshape(nz, ny, nx)
+    lab, n = ndimage.label(solid)
+    lab = lab.ravel()
+    sizes = np.bincount(lab)[1:] if n else np.array([0])
+    main = int(np.argmax(sizes)) + 1 if n else 0
+    passive_ok = bool(np.all(lab[model.passive] == main))
+    return dict(components=int(n), largest_fraction=float(sizes.max() / max(sizes.sum(), 1)), passive_connected=passive_ok)
 
 
 def _mode_descriptions(model, r):
@@ -75,6 +90,30 @@ def _upsample(rho, nel_c):
     return np.repeat(np.repeat(np.repeat(r, 2, 0), 2, 1), 2, 2).ravel()
 
 
+def transfer_overlap(rho_c, coarse, fine):
+    """Volume-weighted transfer to a non-nested mesh: each fine voxel gets the overlap-weighted
+    mean of the coarse densities it covers (separable in x, y, z). Total material volume is
+    preserved exactly; passive voxels stay solid because their boundaries lie on both grids."""
+    def w1(nc, nf, L):
+        ec, ef = np.linspace(0, L, nc + 1), np.linspace(0, L, nf + 1)
+        W = np.clip(np.minimum(ef[1:, None], ec[None, 1:]) - np.maximum(ef[:-1, None], ec[None, :-1]), 0, None)
+        return W / (L / nf)
+    Wx, Wy, Wz = (w1(c, f, L) for c, f, L in zip(coarse.nel, fine.nel, coarse.L))
+    r = np.minimum(np.einsum("ak,bj,ci,kji->abc", Wz, Wy, Wx, rho_c.reshape(coarse.nel[::-1])).ravel(), 1.0)  # round-off
+    assert np.allclose(r[fine.passive], 1.0)
+    return r
+
+
+def transfer_nearest(rho_c, coarse, fine):
+    """Non-nested transfer by sampling: each fine voxel takes the density of the coarse voxel
+    containing its centre. Keeps boundaries crisp (no new gray material) but changes the total
+    volume slightly, because boundaries move to the nearest fine grid line."""
+    idx = np.minimum((fine.centers / coarse.h).astype(int), np.array(coarse.nel) - 1)
+    r = rho_c[idx[:, 0] + coarse.nel[0] * (idx[:, 1] + coarse.nel[1] * idx[:, 2])]
+    assert np.allclose(r[fine.passive], 1.0)
+    return r
+
+
 def _norm_field(v, digits=4):
     s = float(np.max(np.abs(v))) or 1.0
     return dict(scale=s, data=np.round(v / s, digits).tolist())
@@ -84,7 +123,7 @@ def build(data):
     cfg, runs = data["cfg"], data["runs"]
     FIG.mkdir(parents=True, exist_ok=True)
     (DOCS / "assets" / "figures").mkdir(parents=True, exist_ok=True)
-    p, beta = cfg["simp"]["continuation"][-1][:2]
+    p, beta = runs["B"]["stages"][-1][:2]
     h = runs["B"]["h"]
     model = Bracket(cfg, h)
 
@@ -104,23 +143,31 @@ def build(data):
     # manufacturing interpretation: threshold B at rho = 0.5 and re-analyse the 0/1 design
     rb = np.where(res["B"]["rho"] >= 0.5, 1.0, cfg["simp"]["x_min"])
     checks["thresholded_B"] = metrics(model, model.analyze(None, p, beta, grad=False, rho=rb))
-    # refinement of the reported design itself: B upsampled to h/2 (static + modal; buckling
-    # skipped because ~10^5 DOFs make the extra eigen-solves too slow for the pipeline)
+    # refinement of the reported design itself: B on h/2 (from the sweep run: static + modal;
+    # buckling skipped because ~10^5 DOFs make the extra eigen-solves too slow for the pipeline)
+    if "refined" in runs["B"]:
+        checks["refined_B"] = runs["B"]["refined"]
+    # an additional, non-nested refinement (2h/3) for the modal check, volume-weighted transfer
     if data["mode"] == "final":
-        fine = Bracket(cfg, h / 2)
-        checks["refined_B"] = metrics(fine, fine.analyze(None, p, beta, grad=False, buckling=False,
-                                                         rho=_upsample(res["B"]["rho"], model.nel)))
+        mid = Bracket(cfg, cfg["mesh"]["h_convergence"][-1])
+        r = mid.analyze(None, p, beta, grad=False, buckling=False, rho=transfer_overlap(res["B"]["rho"], model, mid))
+        checks["mid_B"] = metrics(mid, r)
+        r = mid.analyze(None, p, beta, grad=False, buckling=False, rho=transfer_nearest(res["B"]["rho"], model, mid))
+        checks["mid_B_nearest"] = metrics(mid, r)
 
     # tables
-    hist = [dict(run=k, **row) for k, rr in runs.items() for row in rr["history"]]
+    hist = [dict(run=k, **row) for k, rr in runs.items() if k not in ("A", "B") for row in rr["history"]]
     _csv(hist, RES / "optimization_history.csv")
     summary = {k: dict(h=rr["h"], x0=rr["x0"], use_buckling=rr["use_buckling"], use_freq=rr["use_freq"],
                        alpha_req=rr["alpha_req"], iterations=rr["iterations"], seconds=rr["seconds"], chosen=rr["chosen"],
-                       kkt=rr["kkt"], mma_multipliers=rr["mma_multipliers"], metrics=rr["metrics"])
+                       kkt=rr["kkt"], mma_multipliers=rr["mma_multipliers"], metrics=rr["metrics"],
+                       target=rr.get("target"), refined=rr.get("refined"), last=dict(mass=rr["last"]["mass"], max_g=rr["last"]["max_g"]) if "last" in rr else None,
+                       stages=rr.get("stages"))
                for k, rr in runs.items()}
     out = dict(mode=data["mode"], h_report=h, designs=met, checks=checks, runs=summary,
                gradient_cost=data["gcost"], mesh_convergence=data["mesh_conv"], pipeline_seconds=data["t_pipeline"],
-               mass_solid=float(model.mass_solid))
+               mass_solid=float(model.mass_solid), target=data.get("target"), selection=data.get("selection"),
+               convergence_study=_read_csv(RES / "convergence_study.csv"))
     (RES / "metrics.json").write_text(json.dumps(out, indent=1))
 
     viewer = viewer_json(model, res, met, runs)
@@ -134,6 +181,13 @@ def build(data):
     from . import site
     site.build(data, out, model)
     return out
+
+
+def _read_csv(path):
+    if not path.exists():
+        return None
+    with open(path, newline="") as fh:
+        return list(csv.DictReader(fh))
 
 
 def _csv(rows, path):
@@ -229,15 +283,23 @@ def figures(data, model, res, met):
 
     # 3. optimization history (mass)
     fig, ax = plt.subplots(figsize=(8, 3.4))
-    for k, c, ls in [("A", C_A, "-"), ("B", C_B, "--"), ("S1", MUTED, ":"), ("S2", "#9ca3af", ":"), ("S3", "#4b5563", ":")]:
+    n0 = len(runs["A_base"]["history"])
+    hb = runs["A_base"]["history"]
+    ax.plot([r["iter"] for r in hb], [r["mass"] for r in hb], "-", color=INK, lw=1.4, label=f"A_base (h={runs['A_base']['h'] * 1e3:.0f} mm, solid start)")
+    for k, c, ls in [("A", C_A, "-"), ("B", C_B, "--")]:
         hst = runs[k]["history"]
-        ax.plot([r["iter"] for r in hst], [r["mass"] for r in hst], ls, color=c, lw=1.4,
+        ax.plot([n0 + r["iter"] for r in hst], [r["mass"] for r in hst], ls, color=c, lw=1.4,
+                label=f"{k}: final stage at {runs[k]['target']:g} Hz, {'with' if k == 'B' else 'no'} buckling")
+    for k, c in [("S1", MUTED), ("S2", "#9ca3af"), ("S3", "#4b5563")]:
+        hst = runs[k]["history"]
+        ax.plot([r["iter"] for r in hst], [r["mass"] for r in hst], ":", color=c, lw=1.2,
                 label=f"{k} (h={runs[k]['h'] * 1e3:.0f} mm, x0={runs[k]['x0']:g})")
-    for r0, r1 in zip(runs["B"]["history"][:-1], runs["B"]["history"][1:]):
+    for r0, r1 in zip(hb[:-1], hb[1:]):
         if r1["stage"] != r0["stage"]:
             ax.axvline(r1["iter"], color="#d0d7de", lw=0.8)
+    ax.axvline(n0, color=C_B, lw=0.8, ls=":")
     ax.set_yscale("log")
-    ax.set_xlabel("MMA iteration (vertical lines: continuation steps of B)")
+    ax.set_xlabel("MMA iteration (grey lines: continuation steps of A_base; dotted: start of the final stage)")
     ax.set_ylabel("mass [kg]")
     ax.legend(fontsize=7, frameon=False)
     _style(ax)
@@ -247,8 +309,8 @@ def figures(data, model, res, met):
 
     # 4. constraint history of B
     fig, ax = plt.subplots(figsize=(8, 3.4))
-    hst = runs["B"]["history"]
-    it = [r["iter"] for r in hst]
+    hst = runs["A_base"]["history"] + runs["B"]["history"]
+    it = list(range(len(hst)))
     for key, lab, c in [("freq", "frequency", C_B), ("stress_LC2", "stress LC2", C_A), ("disp_LC3", "displacement LC3", "#15803d"),
                         ("buckling_LC2", "buckling LC2", C_I)]:
         ax.plot(it, [r[key] for r in hst], lw=1.2, color=c, label=lab)
@@ -256,7 +318,8 @@ def figures(data, model, res, met):
     ax.set_ylim(-1.2, 1.2)
     ax.set_xlabel("MMA iteration")
     ax.set_ylabel(r"scaled constraint $g_i$ (feasible $\leq 0$)")
-    ax.set_title("Run B: constraint history")
+    ax.axvline(len(runs["A_base"]["history"]), color=MUTED, lw=0.8, ls=":")
+    ax.set_title("A_base (no buckling constraint) then the final stage of B")
     ax.legend(fontsize=7, frameon=False, ncol=4)
     _style(ax)
     fig.tight_layout()
