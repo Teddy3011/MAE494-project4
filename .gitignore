@@ -3,3 +3,5 @@ __pycache__/
 .pytest_cache/
 results/runs.pkl
 .claude/
+results/convergence_runs/
+results/run_cache/

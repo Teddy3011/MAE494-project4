@@ -25,8 +25,8 @@
 <a href="#summary">1 Summary</a><br><a href="#formulation">2 Structure and formulation</a><br>
 <a href="#analysis">3 Analysis model</a><br><a href="#verification">4 Verification</a><br>
 <a href="#sensitivities">5 Sensitivities</a><br><a href="#optimization">6 Optimization</a><br>
-<a href="#nonlinear">7 Nonlinear component (buckling)</a><br><a href="#results">8 Results table</a><br>
-<a href="#bonus">9 Bonus: topology optimization</a><br><a href="#limitations">10 Limitations and AI use</a><br>
+<a href="#nonlinear">7 Nonlinear component (buckling)</a><br><a href="#results">8 Results</a><br>
+<a href="#bonus">9 Bonus: topology optimization</a><br><a href="#limitations">10 Limitations, lessons and AI use</a><br>
 <a href="#references">References</a>
 </nav>
 
@@ -34,22 +34,23 @@
 <div class="kpis">
 <div class="kpi"><div class="v">@@mass_B@@ kg</div><div class="l">optimized bracket mass (with buckling constraint)</div></div>
 <div class="kpi"><div class="v">&minus;@@reduction@@ %</div><div class="l">vs the solid design domain (@@mass_I@@ kg)</div></div>
-<div class="kpi"><div class="v">@@f1_B@@ Hz</div><div class="l">first natural frequency, required &ge; 100 Hz</div></div>
+<div class="kpi"><div class="v">@@ref5_f1@@ Hz</div><div class="l">first natural frequency on the 5 mm check mesh, required &ge; 100 Hz</div></div>
 <div class="kpi"><div class="v">@@alpha_B@@</div><div class="l">critical buckling load factor, required &ge; 3</div></div>
-<div class="kpi"><div class="v">@@kpi_feasible@@</div><div class="l">every constraint, independent re-analysis on the @@h_mm@@ mm mesh</div></div>
+<div class="kpi"><div class="v">@@kpi_feasible@@</div><div class="l">every constraint on the @@h_mm@@ mm mesh and the 5 mm check</div></div>
 </div>
-<p>An aluminium 6061-T6 bracket carries a 120 kg engine at 3&nbsp;g plus a &plusmn;400&nbsp;N&middot;m torque reaction.
-Starting from a solid 200&times;120&times;160&nbsp;mm block, a density-based (SIMP) topology optimization on
-@@ne@@ voxels of @@h_mm@@&nbsp;mm reduces the mass to @@mass_B@@&nbsp;kg with @@feasible_B@@.
-The finite-element solver, all adjoint sensitivities and the optimizer are written from scratch for this project.
-Near-active at the optimum: <b>@@active_B@@</b>. The frequency requirement, with the engine
-included as a lumped mass, sizes the bracket. Linear buckling (the nonlinear component N1) is far from active:
-adding the constraint \(\alpha_{cr}\ge 3\) changes the mass by @@dm_AB@@&nbsp;% (@@mass_A@@ &rarr; @@mass_B@@&nbsp;kg),
-because the frequency-sized members are stocky (\(\alpha_{cr}\) = @@alpha_A@@ without the constraint).
-A supplementary study in section 7 removes the frequency requirement to show when stability does matter.
-<b>Mesh margin:</b> coarse voxels overestimate stiffness, so the optimizer constrains the first frequency to @@f_design@@&nbsp;Hz on the
-@@h_mm@@&nbsp;mm mesh. Re-analysed on a 5&nbsp;mm mesh, the optimized design's first frequency is @@ref5_f1@@&nbsp;Hz (@@ref5_pct@@&nbsp;%), so it
-@@ref5_verdict@@ (section 8).</p>
+<p>We designed an aluminium 6061-T6 bracket that holds a 120 kg engine at 3&nbsp;g with a &plusmn;400&nbsp;N&middot;m torque reaction.
+We started from a solid 200&times;120&times;160&nbsp;mm block (@@mass_I@@&nbsp;kg) and let a density-based topology optimization decide
+where material is needed. The final bracket weighs @@mass_B@@&nbsp;kg. We wrote the finite-element solver, the gradients and the optimizer
+for this project, with heavy use of an AI coding assistant (section 10).</p>
+<p>One requirement controls the design: the first natural frequency must stay above 100&nbsp;Hz with the engine on the bracket.
+Stress and displacement have large margins. Linear buckling, our nonlinear component, never becomes active: with or without the buckling
+constraint we get practically the same bracket (@@mass_A@@ vs @@mass_B@@&nbsp;kg, \(\alpha_{cr}\approx\) @@alpha_B@@).</p>
+<p>The 10&nbsp;mm voxels make the bracket look a little stiffer than it is. We found that out the hard way (section 10), so we now
+optimize to a slightly higher frequency target and check every candidate on a 5&nbsp;mm mesh. We swept the target and picked the lightest
+design that keeps at least @@margin_hz@@&nbsp;Hz of margin on the 5&nbsp;mm mesh: target @@target_sel@@&nbsp;Hz, which gives
+@@ref5_f1@@&nbsp;Hz there. <b>Caveat:</b> on a 6.67&nbsp;mm mesh, which cannot represent the same voxel geometry exactly, the design gives
+@@mid_range@@&nbsp;Hz, @@mid_verdict@@. So the 100&nbsp;Hz margin depends on the discretization by a few percent, and we have not shown
+mesh convergence (section 8).</p>
 
 <section id="viewer">
 <h3>Interactive 3D comparison</h3>
@@ -69,64 +70,74 @@ A supplementary study in section 7 removes the frequency requirement to show whe
 </div>
 <p id="inspect">Hover or tap a voxel to inspect it.</p>
 <p id="over"></p><p id="anim-note"></p><p id="viewer-status"></p>
-<p style="font-size:0.85rem">Cameras are linked: drag either pane. Geometry is true size at deformation &times;0; the label shows the
-exaggeration otherwise. Node displacements are interpolated over each voxel face with the element shape functions
-(trilinear, bilinear on a face). Black dots: clamped bolt-pad nodes. Red arrow: 3g engine load; brown arrows: torque couple.
-Voxels with &rho; below the display threshold are hidden; every number is from the continuous density field that was analysed.</p>
+<p style="font-size:0.85rem">The two cameras are linked, so dragging either pane turns both. At deformation &times;0 the geometry is true size;
+otherwise the label gives the exaggeration. Displacements are interpolated across each voxel face with the element shape functions.
+Black dots are clamped bolt-pad nodes, the red arrow is the 3g engine load and the brown arrows are the torque couple.
+The display threshold only hides voxels; every number comes from the continuous density field that we analysed.</p>
 </section>
 
 <h2 id="formulation">2 Structure and formulation</h2>
-<h3>Engineering problem</h3>
-<p>The bracket connects an engine to the chassis. It must carry inertial loads without yielding, be stiff enough
-that the engine mount point barely moves, keep its first natural frequency above the engine's excitation band,
-and must not buckle. Mass is the objective. The design domain, interfaces and loads are team modelling assumptions
-(table below), chosen so that the problem is representative but simple to reproduce.</p>
-<p><b>Coordinates.</b> \(x\) along the bracket length (0&ndash;200 mm), \(y\) across (0&ndash;120 mm), \(z\) vertical, up (0&ndash;160 mm).
-The base is \(z=0\); the engine sits on the top face \(z=160\) mm.</p>
+<h3>What the bracket has to do</h3>
+<p>The bracket ties an engine to the chassis. It has to carry inertial loads without yielding, keep the engine mount from moving much,
+keep its first natural frequency above the engine's excitation, and not buckle. We want it as light as possible.
+We did not have a real drawing, so the design domain, interfaces and loads below are our own modelling choices.</p>
+<p><b>Coordinates.</b> \(x\) runs along the bracket (0&ndash;200 mm), \(y\) across it (0&ndash;120 mm) and \(z\) up (0&ndash;160 mm).
+The base is at \(z=0\) and the engine sits on the top face at \(z=160\) mm.</p>
 <div class="scroll"><table>
 <tr><th>Item</th><th>Value</th><th>Source</th></tr>
-<tr><td>Material</td><td>Al 6061-T6: E = 69 GPa, &nu; = 0.33, &rho; = 2700 kg/m&sup3;, yield 276 MPa</td><td>Typical values, ASM Handbook Vol. 2 [21]. Yield is a typical, not a design-allowable, value (see limitations).</td></tr>
-<tr><td>Design domain</td><td>200 &times; 120 &times; 160 mm voxel block</td><td>Team assumption</td></tr>
-<tr><td>Supports</td><td>Four 40 &times; 40 mm bolt pads in the base corners; every DOF of the bottom-face nodes in a pad is clamped. 20 mm thick passive solid above each pad.</td><td>Team assumption (bolted joint idealized as bonded)</td></tr>
-<tr><td>Engine interface</td><td>80 &times; 40 mm patch centred on the top face, 20 mm passive solid below it</td><td>Team assumption</td></tr>
-<tr><td>LC1</td><td>Vertical 3 g: \(W = 3 \times 120 \times 9.81 =\) @@W@@ N downward, uniform traction on the patch</td><td>Project brief (team assumption)</td></tr>
-<tr><td>LC2, LC3</td><td>LC1 plus / minus a 400 N&middot;m torque reaction about \(y\) (crankshaft parallel to \(y\)), applied as a linearly varying vertical traction (a statically equivalent force couple, net force zero)</td><td>Project brief; both senses because the reaction reverses between drive and overrun (team assumption)</td></tr>
-<tr><td>Engine mass in modal analysis</td><td>120 kg lumped on the interface nodes (translational DOFs, area-weighted); engine rotary inertia neglected</td><td>Team assumption; the whole engine on one bracket is conservative</td></tr>
-<tr><td>Self-weight of the bracket</td><td>Neglected in the static load cases (&lt; 0.1 % of \(W\) for the optimized design)</td><td>Team assumption</td></tr>
+<tr><td>Material</td><td>Al 6061-T6: E = 69 GPa, &nu; = 0.33, &rho; = 2700 kg/m&sup3;, yield 276 MPa</td><td>Typical values, ASM Handbook Vol. 2 [21]. 276 MPa is a typical yield, not a design allowable (see limitations).</td></tr>
+<tr><td>Design domain</td><td>200 &times; 120 &times; 160 mm block of voxels</td><td>Our assumption</td></tr>
+<tr><td>Supports</td><td>Four 40 &times; 40 mm bolt pads in the base corners. Every DOF of the bottom nodes in a pad is clamped, and the 20 mm above each pad is kept solid.</td><td>Our assumption (bolted joint treated as bonded)</td></tr>
+<tr><td>Engine interface</td><td>80 &times; 40 mm patch in the middle of the top face, with 20 mm of solid material below it</td><td>Our assumption</td></tr>
+<tr><td>LC1</td><td>Vertical 3 g: \(W = 3 \times 120 \times 9.81 =\) @@W@@ N downward, spread uniformly over the patch</td><td>Project brief (our assumption)</td></tr>
+<tr><td>LC2, LC3</td><td>LC1 plus or minus a 400 N&middot;m torque about \(y\) (crankshaft along \(y\)), applied as a vertical traction that varies linearly along \(x\)</td><td>Project brief; we use both signs because the torque reverses between driving and coasting (our assumption)</td></tr>
+<tr><td>Engine mass in the vibration analysis</td><td>120 kg lumped on the interface nodes (translations only, area-weighted). We ignore the engine's rotary inertia.</td><td>Our assumption; putting the whole engine on one bracket is conservative</td></tr>
+<tr><td>Bracket self-weight</td><td>Left out of the static load cases (under 0.1 % of \(W\) for the final design)</td><td>Our assumption</td></tr>
 </table></div>
+<p><b>How the torque is applied.</b> On each interface node we put a vertical force \(f_i=-T\,(x_i-x_c)\,w_i/\sum_j w_j (x_j-x_c)^2\), where \(w_i\)
+is the node's area weight and \(x_c\) the patch centre. The forces are antisymmetric about \(x_c\), so they add up to zero net force, and their
+moment about the \(y\) axis is exactly \(T\). Check V5.T confirms 400 N&middot;m.</p>
 
 <h3>Design variables</h3>
-<p>One density variable \(x_e \in [10^{-3}, 1]\) per non-passive voxel: <b>@@n_design@@ variables</b> on the @@h_mm@@ mm mesh
-(@@ne@@ voxels minus the passive pads and interface). The lower bound keeps the relaxed stress \(\bar\rho^{q}\) differentiable;
-voxels with \(\bar\rho\to 0\) are void. Physical densities \(\bar\rho\) follow from the filter and projection in section 3.</p>
+<p>There is one density variable \(x_e \in [10^{-3}, 1]\) per voxel that is free to change: <b>@@n_design@@ variables</b> on the @@h_mm@@ mm mesh
+(@@ne@@ voxels minus the solid pads and interface). A voxel near the lower bound is effectively empty. The lower bound is not zero because the
+relaxed stress uses \(\bar\rho^{q}\) with \(q=1/2\), which has an infinite slope at zero. The density the structure actually "sees",
+\(\bar\rho\), comes from the filter and projection in section 3.</p>
 
 <h3>Optimization problem</h3>
 \[
 \min_{\mathbf x}\; m(\mathbf x)=\rho_0 V_e \sum_e \bar\rho_e(\mathbf x)
-\quad\text{s.t.}\quad g_i(\mathbf x)\le 0,\; i=1,\dots,9,\qquad 10^{-3}\le x_e\le 1 ,
+\quad\text{s.t.}\quad g_i(\mathbf x)\le 0,\; i=1,\dots,9,\qquad 10^{-3}\le x_e\le 1 .
 \]
-<p>with the scaled objective \(f = m/m_{solid}\) and all constraints dimensionless, feasible when \(\le 0\):</p>
+<p>We minimize mass. For the optimizer we divide it by the solid-block mass, and we write every constraint as a dimensionless \(g_i\le 0\):</p>
 \[
 \begin{aligned}
 g_{\sigma,k} &= \frac{1}{\sigma_{allow}}\Big(\sum_{e}\sum_{\text{GP}}\big(\bar\rho_e^{\,q}\,\sigma_{vm}\big)^{P}\Big)^{1/P}-1, & k&=1,2,3, & \sigma_{allow}&=276/1.5=@@sig_allow@@\ \text{MPa}\\
 g_{d,k} &= \frac{\lVert\bar{\mathbf u}_k\rVert}{d_{allow}}-1, \quad \bar{\mathbf u}_k=\textstyle\sum_{n\in\Gamma_{if}} w_n\mathbf u_{n,k}, & k&=1,2,3, & d_{allow}&=0.5\ \text{mm}\\
-g_{f} &= 1-\mathrm{KS}_{\min}\big(\lambda_1/\lambda_{req},\dots,\lambda_6/\lambda_{req}\big), & \lambda_{req}&=(2\pi f_{design})^2=@@lam_req@@\ \text{s}^{-2},\ f_{design}=@@f_design@@\ \text{Hz} \\
+g_{f} &= 1-\mathrm{KS}_{\min}\big(\lambda_1/\lambda_{req},\dots,\lambda_6/\lambda_{req}\big), & \lambda_{req}&=(2\pi f_{design})^2 \\
 g_{b,k} &= \mathrm{KS}_{\max}\big(\alpha_{req}\mu_{1,k},\dots,\alpha_{req}\mu_{4,k}\big)-1, \quad \mu=1/\alpha, & k&=2,3, & \alpha_{req}&=3
 \end{aligned}
 \]
-<p>\(\bar{\mathbf u}_k\) is the area-weighted mean displacement of the engine-interface nodes (the translation of the mount point);
-its norm covers every direction. \(\mathrm{KS}_{\max}(v)=\max v+\tfrac1s\ln\sum e^{s(v_i-\max v)}\ge\max v\) and
-\(\mathrm{KS}_{\min}(v)=-\mathrm{KS}_{\max}(-v)\le\min v\) with \(s=50\) [9]; both are conservative and smooth when eigenvalues are
-repeated or cross [22]. The p-norm (\(P=8\)) over all Gauss points of all voxels is an upper bound on the true maximum, so
-\(g_\sigma\le 0\) guarantees the relaxed maximum stress is below the allowable. The buckling factor of LC1 needs no
-constraint: its prestress is the mean of LC2 and LC3, and for the Rayleigh quotient
-\(\mu_1=\max_\psi \psi^T(-K_G^{(1)})\psi/\psi^TK\psi \le \max(\mu_2,\mu_3)\), so \(\alpha_{LC1}\ge\min(\alpha_{LC2},\alpha_{LC3})\).</p>
-<p><b>Frequency design margin.</b> The requirement is \(f_1\ge100\) Hz. The optimizer constrains \(f_1\ge f_{design}=\) @@f_design@@ Hz on the
-@@h_mm@@ mm analysis mesh, because a first design optimized to exactly 100 Hz on that mesh gave 94.8 Hz on a 5 mm mesh (ratio 1.057; commit
-<code>8189727</code>). The target is 100 &times; 1.057 plus a 1 % cushion. This tightens the constraint; pass/fail in every table is judged against 100 Hz.</p>
-<p>All limits (184 MPa, 0.5 mm, 100 Hz, &alpha; &ge; 3, 3 g, 400 N&middot;m) come from the project brief and are <b>team design
-assumptions</b>, not code requirements. The safety factor 1.5 on yield matches the common aerospace ultimate factor
-[14 CFR 25.303] but is applied here to typical yield as a team choice.</p>
+<p>In words:</p>
+<ul>
+<li><b>Stress (three constraints, one per load case).</b> A p-norm (\(P=8\)) of the von Mises stress over every Gauss point. A p-norm is
+always at least as large as the true maximum, so keeping it under 184 MPa keeps every point under 184 MPa. \(\bar\rho^q\) is the stress
+relaxation explained in section 3.</li>
+<li><b>Displacement (three constraints).</b> \(\bar{\mathbf u}_k\) is the area-weighted average displacement of the engine-interface nodes,
+which is how far the mount point moves. We take its full length, so all directions count.</li>
+<li><b>Frequency (one constraint).</b> \(\lambda_i=\omega_i^2\) are the six lowest eigenvalues. \(\mathrm{KS}_{\min}\) is a smooth minimum that
+is always a bit below the true minimum (\(s=50\)) [9]. We use a smooth minimum because two modes can swap order or have the same frequency,
+and a plain "min" is not differentiable there [22].</li>
+<li><b>Buckling (two constraints, LC2 and LC3).</b> \(\mu=1/\alpha\), and \(\mathrm{KS}_{\max}\) is a smooth maximum over the four largest
+\(\mu\). We do not need LC1: its prestress is the average of LC2 and LC3, and from the Rayleigh quotient
+\(\mu_1=\max_\psi \psi^T(-K_G^{(1)})\psi/\psi^TK\psi \le \max(\mu_2,\mu_3)\), so \(\alpha_{LC1}\ge\min(\alpha_{LC2},\alpha_{LC3})\).</li>
+</ul>
+<p><b>Why the frequency target is above 100 Hz.</b> The requirement is \(f_1\ge100\) Hz. Our first design, optimized to exactly 100 Hz on
+the 10 mm mesh, only reached 94.8 Hz when we split every voxel into eight (commit <code>8189727</code>). So the optimizer works with a target
+\(f_{design}\) a few percent above 100 Hz. We swept that target (section 6) and the reported design uses \(f_{design}=\) @@target_sel@@ Hz.
+Pass or fail in every table is still judged against 100 Hz.</p>
+<p>All limits (184 MPa, 0.5 mm, 100 Hz, &alpha; &ge; 3, 3 g, 400 N&middot;m) come from the project brief. They are our design assumptions,
+not code requirements. A factor of 1.5 matches the common aerospace ultimate factor [14 CFR 25.303]; here we apply it to typical yield as our own choice.</p>
 
 <h2 id="analysis">3 Analysis model</h2>
 <h3>Governing equations</h3>
@@ -136,23 +147,23 @@ assumptions</b>, not code requirements. The safety factor 1.5 on yield matches t
 \boldsymbol\varepsilon=\tfrac12(\nabla\mathbf u+\nabla\mathbf u^T),\quad
 \mathbf u=\mathbf 0 \text{ on }\Gamma_{pads},\quad \boldsymbol\sigma\mathbf n=\mathbf t_k \text{ on }\Gamma_{if}.
 \]
-<p>Weak form: find \(\mathbf u\) with \(\int_\Omega \boldsymbol\varepsilon(\mathbf v):\mathbf C:\boldsymbol\varepsilon(\mathbf u)\,d\Omega
-=\int_{\Gamma_{if}}\mathbf v\cdot\mathbf t_k\,d\Gamma\) for all admissible \(\mathbf v\), discretized as \(\mathbf K\mathbf u_k=\mathbf F_k\).
-Free vibration: \(\mathbf K\boldsymbol\phi=\lambda\mathbf M\boldsymbol\phi,\ \lambda=\omega^2\), with
-\(\boldsymbol\phi^T\mathbf M\boldsymbol\phi=1\). Linear buckling about the static state of load case \(k\):
-\((\mathbf K+\alpha\mathbf K_G(\mathbf u_k))\boldsymbol\psi=\mathbf 0\), solved as the symmetric-definite problem
-\((-\mathbf K_G)\boldsymbol\psi=\mu\mathbf K\boldsymbol\psi\), \(\mu=1/\alpha\), largest \(\mu\) first, \(\boldsymbol\psi^T\mathbf K\boldsymbol\psi=1\) [18, 19].
-Stress is tension-positive, so compression makes \(-\mathbf K_G\) positive and \(\alpha>0\).</p>
+<p>This is 3D linear elasticity: equilibrium, Hooke's law and small strains, with the pads clamped and the engine loads on the top patch.
+The weak form is: find \(\mathbf u\) such that \(\int_\Omega \boldsymbol\varepsilon(\mathbf v):\mathbf C:\boldsymbol\varepsilon(\mathbf u)\,d\Omega
+=\int_{\Gamma_{if}}\mathbf v\cdot\mathbf t_k\,d\Gamma\) for every admissible \(\mathbf v\). After discretization this becomes \(\mathbf K\mathbf u_k=\mathbf F_k\).</p>
+<p>For vibration we solve \(\mathbf K\boldsymbol\phi=\lambda\mathbf M\boldsymbol\phi\) with \(\lambda=\omega^2\) and mass-normalized modes
+(\(\boldsymbol\phi^T\mathbf M\boldsymbol\phi=1\)). For buckling we first solve the static problem, build the geometric stiffness
+\(\mathbf K_G\) from those stresses, and solve \((\mathbf K+\alpha\mathbf K_G)\boldsymbol\psi=\mathbf 0\). In the code this is the equivalent
+symmetric problem \((-\mathbf K_G)\boldsymbol\psi=\mu\mathbf K\boldsymbol\psi\) with \(\mu=1/\alpha\) [18, 19]. Stress is positive in tension,
+so compression makes \(-\mathbf K_G\) positive and gives \(\alpha>0\).</p>
 
 <h3>Element</h3>
-<p>8-node trilinear hexahedra, 2&times;2&times;2 Gauss quadrature, with Wilson's 9 incompatible bubble modes and Taylor's
-centroid-Jacobian correction [16, 17], condensed out at element level
-(\(\mathbf K_e=\mathbf K_{uu}-\mathbf K_{u\alpha}\mathbf K_{\alpha\alpha}^{-1}\mathbf K_{\alpha u}\)). The plain fully integrated hex8 locks
-in bending: 33 % too stiff on the V2 cantilever with two elements through the depth. Stresses are recovered at the Gauss points
-with the condensed bubble modes (\(\boldsymbol\sigma_g=\mathbf D(\mathbf B_u+\mathbf B_\alpha\mathbf A)\mathbf u_e\)). Mass is consistent
-(bubbles carry none). The geometric stiffness uses the Gauss-point stresses:
-\(\mathbf K_{G,e}=\sum_g \mathbf G_g^T\mathbf S(\boldsymbol\sigma_g)\mathbf G_g\,\det J_g\). Global matrices are SciPy sparse; one sparse LU
-of \(\mathbf K\) serves all load cases, every adjoint solve and the shift-invert eigen-solves (ARPACK).</p>
+<p>We use 8-node hexahedra with 2&times;2&times;2 Gauss points. A plain hex8 "locks" in bending: on our cantilever test (V2.b) it came out
+33 % too stiff. So we added Wilson's 9 incompatible bubble modes with Taylor's correction [16, 17], which let the element bend, and condense
+them out inside each element: \(\mathbf K_e=\mathbf K_{uu}-\mathbf K_{u\alpha}\mathbf K_{\alpha\alpha}^{-1}\mathbf K_{\alpha u}\). Taylor's
+correction keeps the patch test passing (V1). Stresses are taken at the Gauss points including the bubble modes. The mass matrix is consistent
+(the bubbles carry no mass). The geometric stiffness uses the Gauss-point stresses,
+\(\mathbf K_{G,e}=\sum_g \mathbf G_g^T\mathbf S(\boldsymbol\sigma_g)\mathbf G_g\,\det J_g\). Global matrices are SciPy sparse. One sparse LU
+factorization of \(\mathbf K\) is reused for all load cases, all adjoint solves and the shift-invert eigen-solves.</p>
 
 <h3>SIMP model, filter and projection</h3>
 \[
@@ -165,195 +176,261 @@ E_G=E_0\,\bar\rho^{\,p};\qquad
 m_{modal}=\bar\rho^{\,p}\frac{1+c}{\bar\rho^{\,p-1}+c},\ c=0.1^{\,p-1};\qquad
 \boldsymbol\sigma=\bar\rho^{\,q}\,\mathbf D_0\mathbf B\mathbf u,\ q=\tfrac12
 \]
-<p>\(\mathbf y\) equals \(\mathbf x\) on design voxels and 1 on passive voxels. The density filter [3, 4] fixes a 30 mm minimum
-length scale independent of the mesh and removes checkerboards; the projection [5] drives the field to 0/1 as \(\beta\) grows.
-SIMP stiffness [1, 2] penalizes intermediate densities. The stress used in \(\mathbf K_G\) has no floor, so void voxels carry
-no prestress and create no spurious buckling modes [6, 7]. The modal mass equals the physical mass at \(\bar\rho=0\) and 1 but
-falls like \(\bar\rho^{\,p}\) near zero (a smooth variant of Pedersen's correction [12, 13]), so soft voids cannot create
-spurious low-frequency local modes; the objective always uses the physical mass \(\bar\rho\). Stress relaxation with
-\(q&lt;p\) [8, 10, 11] removes the singular optimum of stress-constrained topology problems.</p>
+<p>What each piece does:</p>
+<ul>
+<li><b>Filter</b> [3, 4]: each density is averaged with its neighbours within 30 mm. This sets a minimum member size that does not depend
+on the mesh and stops checkerboard patterns. \(\mathbf y\) is \(\mathbf x\) on design voxels and 1 on the solid pads and interface.</li>
+<li><b>Projection</b> [5]: pushes the filtered density towards 0 or 1. Raising \(\beta\) makes the design crisper.</li>
+<li><b>SIMP stiffness</b> [1, 2]: with \(p=3\), half-dense material gives only 1/8 of the stiffness for half the mass, so the optimizer
+avoids gray voxels. \(\varepsilon\) keeps \(\mathbf K\) invertible.</li>
+<li><b>Prestress for buckling</b> uses \(E_G\) without the floor, so empty voxels carry no stress and cannot create fake buckling modes [6, 7].</li>
+<li><b>Modal mass</b>: equal to the physical mass at 0 and 1, but it drops like \(\bar\rho^{p}\) near zero (a smooth version of Pedersen's fix
+[12, 13]). Otherwise nearly empty voxels have mass but almost no stiffness and give fake low-frequency local modes. The objective always uses
+the physical mass \(\bar\rho\).</li>
+<li><b>Stress relaxation</b> with \(q&lt;p\) [8, 10, 11]: without it, stress-constrained topology problems have "singular optima" that the
+optimizer cannot reach. We report the relaxed stress, which matches the true stress in fully solid voxels.</li>
+</ul>
 
 <h2 id="verification">4 Verification</h2>
-<p>Expected values are closed-form results written into <code>src/verification.py</code> (derivation in each docstring),
-never solver output. <b>@@n_ver_pass@@ of @@n_ver@@ checks pass.</b> V2.b is not a pass/fail check of the chosen element:
-it documents the size of the locking error of the plain hex8, which is why the incompatible-mode element is used.
-The V3/V4 coarse rows have a loose tolerance and show convergence; the finest mesh must be within 1 %.</p>
+<p>Before trusting the optimizer we checked the solver against problems with known answers. Each expected value is a closed-form formula
+in <code>src/verification.py</code>, never the solver's own output. <b>@@n_ver_pass@@ of @@n_ver@@ checks pass.</b></p>
+<p>Two notes on reading the table. V2.b is not a check of our element: it shows how badly the plain hex8 locks, which is why we use
+incompatible modes. The coarse V3/V4 rows have loose tolerances on purpose; they show the error shrinking, and only the finest mesh
+has to be within 1 %.</p>
 @@verification_table@@
 @@fig_verification@@
-<h3>Bracket mesh convergence (solid design domain)</h3>
+<h3>Mesh convergence of the solid block</h3>
 @@mesh_table@@
-<p>From the second-finest to the finest mesh, the first frequency changes by @@conv_f1@@ % and the mount displacement by
-@@conv_disp@@ %. The maximum von Mises stress keeps growing (+@@conv_vm@@ % at the last refinement): the clamped pad edges and the
-loaded patch corners are re-entrant corners where linear elasticity predicts singular stress. This is why the stress constraint is
-an aggregate of a relaxed stress, and why stress results are reported with this caveat (section 10). The buckling factor of the solid
-block does not converge either (@@a_conv@@): a solid block has no slender member, so its lowest "buckling" mode is a local mode driven by the
-same singular compressive stresses. Every value is three orders of magnitude above the requirement, so the conclusion is unaffected,
-but the solid-domain buckling factor should not be read as a physical capacity.</p>
+<p>Between the two finest meshes the first frequency changes by @@conv_f1@@ % and the mount displacement by @@conv_disp@@ %. The peak von Mises
+stress keeps rising (+@@conv_vm@@ % at the last step). That is expected: the clamped pad edges and the corners of the loaded patch are
+re-entrant corners, where linear elasticity predicts infinite stress. It is one reason we constrain an aggregate of a relaxed stress, and why we
+treat our stress numbers with care (section 10). The solid block's buckling factor does not converge either (@@a_conv@@). A solid block has no
+slender member, so its lowest "buckling" mode is a local mode driven by the same corner stresses. All these values are about a thousand times
+the requirement, so they do not change any conclusion, but they are not a physical capacity.</p>
 
 <h2 id="sensitivities">5 Sensitivities</h2>
-<p>Course method (ii): JAX differentiates only element-level functions (the Gauss-point stress measure and the element quadratic
-form \(\boldsymbol\psi_e^T\mathbf K_{G,e}(\mathbf u_e)\boldsymbol\psi_e\)); global adjoints are assembled by hand with SciPy sparse and
-solved with the existing factorization of \(\mathbf K\). Method (i), a dense JAX pipeline differentiated end to end, is used only as an
-independent check. No Jacobian-free or "phantom" gradient is used anywhere.</p>
-<h3>Static responses</h3>
+<p>With thousands of variables, finite differences are far too slow (see the cost table below), so we use adjoint gradients. We follow the
+course's method (ii). JAX differentiates only small element-level functions: the Gauss-point stress measure, and the element term
+\(\boldsymbol\psi_e^T\mathbf K_{G,e}(\mathbf u_e)\boldsymbol\psi_e\). We assemble the global adjoint systems ourselves with SciPy sparse and
+solve them with the factorization of \(\mathbf K\) we already have. As a cross-check we also built method (i), a dense JAX version of the
+whole analysis differentiated end to end. We did not use any Jacobian-free shortcut.</p>
+<h3>Static responses (stress and displacement)</h3>
 \[
 \mathbf K\boldsymbol\lambda=-\Big(\frac{\partial g}{\partial\mathbf u}\Big)^T,\qquad
 \frac{dg}{d\bar\rho_e}=\frac{\partial g}{\partial\bar\rho_e}+\boldsymbol\lambda_e^T\frac{\partial\mathbf K_e}{\partial\bar\rho_e}\mathbf u_e
 =\frac{\partial g}{\partial\bar\rho_e}+E_K'(\bar\rho_e)\,\boldsymbol\lambda_e^T\mathbf K_e^{(1)}\mathbf u_e
 \]
-<p>(loads do not depend on the design). Six adjoint right-hand sides (3 stress norms, 3 displacements) are solved together.</p>
+<p>The idea in one line: differentiating \(\mathbf K\mathbf u=\mathbf F\) gives \(d\mathbf u=-\mathbf K^{-1}(d\mathbf K)\mathbf u\) (the loads do
+not depend on the design). Instead of computing \(d\mathbf u\) for every variable, we solve one extra system for \(\boldsymbol\lambda\) per
+constraint, and then each derivative is a cheap element-level product. Our six static constraints share one factorization, so all six adjoints
+are solved together.</p>
 <h3>Frequencies</h3>
 \[
 \frac{d\lambda_i}{d\bar\rho_e}=\boldsymbol\phi_{i,e}^T\Big(\frac{\partial\mathbf K_e}{\partial\bar\rho_e}-\lambda_i\frac{\partial\mathbf M_e}{\partial\bar\rho_e}\Big)\boldsymbol\phi_{i,e},
 \qquad \frac{dg_f}{d\bar\rho_e}=-\sum_i w_i\frac{1}{\lambda_{req}}\frac{d\lambda_i}{d\bar\rho_e}
 \]
-<p>with mass-normalized modes and KS weights \(w_i\). For a repeated eigenvalue the individual derivatives are not unique, but the KS
-weights of a degenerate cluster are equal, so the weighted sum equals the derivative of the trace over the cluster, which is basis
-independent [22]. V3.p and V4.p confirm the repeated pairs are resolved.</p>
-<h3>Buckling, including the dependence of K<sub>G</sub> on the static state</h3>
+<p>Because the modes are mass-normalized, an eigenvalue derivative needs no extra solve at all: adding stiffness raises \(\lambda\), adding mass
+lowers it. The \(w_i\) are the KS weights. If two modes have the same frequency, their individual derivatives are not unique, but they get equal
+KS weights, and the weighted sum is the derivative of their sum, which is well defined [22]. Checks V3.p and V4.p show our solver handles such
+repeated pairs.</p>
+<h3>Buckling: why the prestress needs its own adjoint</h3>
 \[
 \frac{d\mu_i}{d\mathbf x}=-\boldsymbol\psi_i^T\frac{\partial\mathbf K_G}{\partial\mathbf x}\Big|_{\mathbf u}\boldsymbol\psi_i-\mu_i\boldsymbol\psi_i^T\frac{\partial\mathbf K}{\partial\mathbf x}\boldsymbol\psi_i
 -\mathbf c_i^T\frac{d\mathbf u}{d\mathbf x},\qquad \mathbf c_i=\frac{\partial}{\partial\mathbf u}\big(\boldsymbol\psi_i^T\mathbf K_G(\mathbf u)\boldsymbol\psi_i\big)
 \]
-<p>The last term is the prestress-through-state contribution. With \(\mathbf K\mathbf u=\mathbf F\) and one adjoint solve per aggregate,
-\(\mathbf K\boldsymbol\lambda_b=\alpha_{req}\sum_i w_i\mathbf c_i\), it becomes \(+\boldsymbol\lambda_b^T(\partial\mathbf K/\partial\mathbf x)\mathbf u\).
-\(\mathbf c_{i,e}\) comes from JAX (element level). Treating the prestress as constant would drop this term; the method (i) check below
-differentiates through the static solve and agrees to round-off.</p>
+<p>Buckling depends on the stress from the static solution, and that stress changes when the density changes. So \(\mathbf K_G\) is not fixed: the
+last term tracks how the prestress moves. We handle it like the static case, with one extra adjoint solve per buckling constraint,
+\(\mathbf K\boldsymbol\lambda_b=\alpha_{req}\sum_i w_i\mathbf c_i\), which turns the term into \(+\boldsymbol\lambda_b^T(\partial\mathbf K/\partial\mathbf x)\mathbf u\).
+JAX gives \(\mathbf c_{i,e}\) element by element. If we had treated the prestress as constant, we would have dropped this term. The method (i) check
+below, which differentiates straight through the static solve, agrees with our gradient to round-off.</p>
 <h3>Filter and projection</h3>
 \[
-\frac{dg}{dx_j}=\sum_e \frac{dg}{d\bar\rho_e}\,\frac{d\bar\rho_e}{d\tilde\rho_e}\,H_{ej}\quad (\text{passive voxels: } d\bar\rho_e/d\tilde\rho_e=0).
+\frac{dg}{dx_j}=\sum_e \frac{dg}{d\bar\rho_e}\,\frac{d\bar\rho_e}{d\tilde\rho_e}\,H_{ej}\quad (\text{solid voxels: } d\bar\rho_e/d\tilde\rho_e=0).
 \]
+<p>This is the chain rule back through the projection and the filter to the design variables.</p>
 <h3>Gradient checks</h3>
-<p>Central differences at a random interior design (p = 3, &beta; = 2, 20 mm mesh) along a random unit direction and along single
-voxels above a support pad, below the engine interface and at the domain centre: @@grad_n@@ comparisons, maximum relative error
-@@grad_max@@, median @@grad_median@@ (best step of the sweep; tolerance 10<sup>-5</sup>).</p>
+<p>We compared our gradients with central differences at a random gray design (p = 3, &beta; = 2, 20 mm mesh). We used a random unit direction,
+plus single voxels above a bolt pad, below the engine interface and in the middle of the domain. That is @@grad_n@@ comparisons, with a maximum
+relative error of @@grad_max@@ and a median of @@grad_median@@ (best step of each sweep; our tolerance is 10<sup>-5</sup>).</p>
 @@grad_table@@
 @@fig_taylor@@
-<p>The relative error falls with slope 2 (central differences, \(O(\epsilon^2)\)) until round-off takes over below
-\(\epsilon\approx10^{-5}\); the Taylor remainder \(|f(x+\epsilon d)-f(x)-\epsilon\nabla f\cdot d|\) also falls with slope 2, which
-only happens if the gradient is exact.</p>
+<p>How to read the plot: the central-difference error falls with slope 2 until round-off takes over below \(\epsilon\approx10^{-5}\). The Taylor
+remainder \(|f(x+\epsilon d)-f(x)-\epsilon\nabla f\cdot d|\) also falls with slope 2. That only happens if the gradient is correct; a wrong gradient
+gives slope 1.</p>
 <h3>Independent method (i) check</h3>
-<p>The full pipeline (filter, projection, dense assembly, <code>jnp.linalg.solve</code>, Cholesky-reduced <code>eigh</code> for frequencies
-and buckling) written in JAX and differentiated in reverse mode, on the 40 mm mesh (@@method_i_n@@ variables), every gradient component compared:</p>
+<p>Here the whole analysis (filter, projection, dense assembly, <code>jnp.linalg.solve</code>, and Cholesky-reduced <code>eigh</code> for the
+frequencies and buckling) is written in JAX and differentiated in reverse mode on the 40 mm mesh (@@method_i_n@@ variables). We compared every
+gradient component:</p>
 @@method_i_table@@
 <h3>Complete finite-difference gradient</h3>
 <p>@@full_fd_note@@</p>
 @@full_fd_table@@
 <h3>Cost</h3>
 @@cost_table@@
-<p>All ten gradients cost about the same as one extra solve per output (the factorization is reused), so the adjoint cost grows
-with the number of outputs and the mesh, not with the number of design variables. Central differences need 2n full analyses.</p>
+<p>All ten gradients cost roughly one extra solve per constraint, because the factorization is reused. So the adjoint cost grows with the number
+of outputs and the mesh size, not with the number of design variables. Central differences need two full analyses per variable.</p>
 
 <h2 id="optimization">6 Optimization</h2>
-<p><b>Algorithm.</b> Method of Moving Asymptotes [14, 15], implemented in <code>src/mma.py</code> (no external optimizer), with elastic
-variables (penalty \(c=1000\)) that keep every subproblem feasible, and its dual solved with L-BFGS-B. SLSQP was rejected because it keeps a
-dense \(n\times n\) quasi-Newton matrix and solves a dense QP per iteration (\(n\) = @@n_design@@ here). MMA is checked in the test suite
-on \(\min\sum x\) s.t. \(\sum 1/x\le n\) (exact optimum \(x=1\), multiplier 1).</p>
-<p><b>Scaling.</b> Variables are in [0, 1]; the objective is mass / solid mass; every constraint is a ratio to its limit minus one.</p>
-<p><b>Continuation.</b> Penalization and projection are raised in stages; the asymptotes are reset at each stage. The schedule starts
-at p = 2: in development, p = 1 let MMA remove nearly all material in a few steps (gray designs are artificially efficient at
-p = 1) and it could not recover. The last stage uses a smaller move limit. A stage ends when max |&Delta;x| &lt; 0.002 with every constraint
-satisfied, or at its iteration limit. The reported design is the last iterate if it is feasible, otherwise the lowest-mass feasible iterate
-of the last stage. A: @@chosen_A@@; B: @@chosen_B@@.</p>
+<p><b>Algorithm.</b> We use our own Method of Moving Asymptotes (MMA) [14, 15] in <code>src/mma.py</code>. It uses elastic variables (penalty
+\(c=1000\)) so every subproblem has a solution, and solves the subproblem's dual with L-BFGS-B. We did not use SLSQP: it stores a dense
+\(n\times n\) matrix and solves a dense QP every iteration, which is slow for \(n\) = @@n_design@@. A unit test checks our MMA on a small problem
+with a known answer (\(\min\sum x\) s.t. \(\sum 1/x\le n\): optimum \(x=1\), multiplier 1).</p>
+<p><b>Scaling.</b> Variables are between 0 and 1, the objective is mass divided by the solid-block mass, and every constraint is a ratio to its limit
+minus one. So all numbers the optimizer sees are of order one.</p>
+<p><b>Continuation.</b> We do not start with the final penalty and projection; we raise them in steps, and reset MMA's asymptotes at each step.
+First a base design without the buckling constraint goes from the solid block through the stages below. Then each candidate restarts from
+that base design for the final stage. In every final stage the reported design must satisfy all smooth constraints to within
+10<sup>-5</sup>. A stage stops when the largest design change drops below 5&times;10<sup>-4</sup> while feasible, or at its iteration limit.
+The reported design is the last iterate if it is feasible, otherwise the lightest feasible iterate of the final stage; we keep both.
+A: @@chosen_A@@. B: @@chosen_B@@.</p>
 @@cont_table@@
+<h3>Final-stage settings we tried</h3>
+<p>Our previous design (commit <code>4cfd53a</code>) stopped with a stationarity residual of about 5 %. To improve convergence without changing the
+engineering problem, we restarted from that design at the same 107 Hz target and changed one final-stage setting at a time
+(<code>studies/convergence_study.py</code>). Each result was also checked on the 5 mm mesh:</p>
+@@conv_study_table@@
+<p>@@conv_study_note@@</p>
 @@fig_history@@
 @@fig_constraints@@
-<h3>Starting designs and mesh</h3>
-<p>Three uniform starting designs with the buckling constraint (S1&ndash;S3) and the no-buckling run (A_dev) on the 20 mm mesh.
-Masses of S1&ndash;S3 differ by @@ms_spread@@ %, so the result does not depend strongly on the start, although topology optimization
-has many local optima and the topologies differ in detail.</p>
+<h3>Design-target sweep and selection</h3>
+<p>We restarted from the base design at several frequency targets, with and without the buckling constraint, and checked every with-buckling
+candidate on the 5 mm mesh. Our selection rule, written in <code>run_all.py</code>: take the lightest candidate whose 5 mm frequency is at least
+100 + @@margin_hz@@ Hz, which also passes stress and displacement on the 5 mm mesh, meets the smooth constraints to 10<sup>-5</sup>, has
+\(\alpha_{cr}\ge3\), and is one connected piece containing all bolt pads and the engine interface. We keep a margin rather than taking a
+design right at 100 Hz, because a design at exactly 100.0 Hz would fail with a slightly different mesh or solver tolerance.</p>
+@@sweep_table@@
+<h3>Different starting designs</h3>
+<p>We also ran three uniform starting densities with the buckling constraint (S1&ndash;S3) and one no-buckling run (A_dev) on the 20 mm mesh, using the
+full continuation at the base target. The S1&ndash;S3 masses differ by @@ms_spread@@ %, so the result does not depend much on where we start,
+although the topologies differ in detail (topology optimization has many local optima).</p>
 @@multistart_table@@
 <h3>KKT conditions and shadow prices</h3>
-<p>KKT multipliers are estimated independently of MMA: for the near-active constraints (\(g&gt;-0.01\)), non-negative least squares on
-\(\nabla f+\sum_i\lambda_i\nabla g_i=\mathbf 0\) over the variables strictly between their bounds; the remaining gradient components
-are the bound multipliers and must have the correct sign on the bounds where they act. They are compared with MMA's dual variables.</p>
+<p>We use \(g_i(\mathbf x)\le 0\), \(L=f+\sum_i\lambda_i g_i\) and \(\lambda_i\ge0\). We do not just trust the optimizer's "converged" message. At the
+final design we estimate the multipliers ourselves: for constraints with \(g&gt;-0.01\), we solve a non-negative least-squares fit of
+\(\nabla f+\sum_i\lambda_i\nabla g_i=\mathbf 0\) over the variables that are strictly between their bounds. What is left of the gradient on the
+variables at a bound acts as the bound multiplier, and it must have the right sign (positive at the lower bound, negative at the upper bound).
+We compare our multipliers with MMA's own dual variables.</p>
 @@kkt_res_table@@
 @@kkt_mult_table@@
-<p><b>Interpretation.</b> \(\lambda_i\) is the decrease of \(f=m/m_{solid}\) per unit relaxation of \(g_i\). Tightening the frequency
-requirement by 1 % raises \(\lambda_{req}\) by about 2 % and \(g_f\) by about 0.02, so the mass cost is \(\approx\lambda_f\cdot0.02\cdot m_{solid}\);
-the last column applies this to each near-active constraint. A zero multiplier on buckling means the stability requirement costs nothing
-at this optimum. Stationarity is not zero (@@stat_B@@ for B): many voxels sit between the bounds with nearly zero sensitivity and the
-last continuation stage changes the problem, so the result is a well-converged local design, not a certified KKT point.</p>
+<p><b>What the multipliers mean.</b> \(\lambda_i\) is how much the scaled mass \(m/m_{solid}\) would drop per unit of relaxation of \(g_i\).
+Raising the frequency target by 1 % raises \(\lambda_{req}\) by about 2 %, so \(g_f\) goes up by about 0.02 and the mass goes up by about
+\(\lambda_f\cdot0.02\cdot m_{solid}\). The last column applies this to every near-active constraint. Buckling has a zero multiplier: at this
+design the stability requirement costs nothing. Stationarity for B is @@stat_B@@. It is small but not zero, so we call B a well-converged local
+design. We do not claim it is a proven optimum.</p>
 
 <h2 id="nonlinear">7 Nonlinear component: linear buckling (N1)</h2>
-<p>Buckling is linearized about the computed static state of LC2 and LC3 (section 3), and its sensitivity includes the state
-dependence of \(\mathbf K_G\) (section 5). Designs with (B) and without (A) the constraint \(\alpha_{cr}\ge3\):</p>
+<p>We linearize buckling about the static state of LC2 and LC3 (section 3), and the gradient includes the prestress term (section 5).
+Here are the designs without (A) and with (B) the constraint \(\alpha_{cr}\ge3\):</p>
 @@fig_buckling@@
-<p><b>Main problem.</b> Without the constraint, the optimum already has \(\alpha_{cr}\) = @@alpha_A@@; with it, @@alpha_B@@. The constraint
-is inactive with a zero multiplier, and the masses differ by @@dm_AB@@ %, which is within the scatter of the optimizer path. The
-frequency requirement with a 120 kg engine forces a lateral stiffness that only stocky members provide, and stocky members do not buckle at
-3&times; the service load.</p>
-<p><b>Supplementary study (20 mm mesh).</b> To see when stability matters, the frequency constraint is removed (as for a soft-mounted
-engine), so stress and displacement size the bracket, and the buckling requirement is then raised. This is a separate study, not the
-project's design case.</p>
+<p><b>Main problem.</b> Without the constraint the design already has \(\alpha_{cr}\) = @@alpha_A@@; with it, @@alpha_B@@. The constraint is inactive
+(zero multiplier), and the masses differ by @@dm_AB@@ %, which is within the optimizer's path scatter. The reason: with a 120 kg engine, 100 Hz needs
+a lot of lateral stiffness, and the only way to get it is with stocky legs. Stocky legs do not buckle at three times the service load.</p>
+<p><b>Extra study (20 mm mesh).</b> We wanted to see when buckling does matter. So we removed the frequency requirement (as if the engine were on
+soft rubber mounts), which lets stress and displacement size the bracket, and then raised the buckling requirement. This is a side study, not our
+design case.</p>
 @@nl_table@@
-<p>Without frequency or buckling constraints the design is @@mass_N@@ kg with \(\alpha_{cr}\) = @@alpha_N@@: buckling is still not critical at
-\(\alpha_{req}=3\). Requirements above that value become active (see the near-active column), and the optimizer then shapes the compression
-members to meet them. The mass does not rise monotonically with the requirement: some constrained runs end lighter than the unconstrained one.
-These are different local optima of a nonconvex problem started from the same design, so differences of a few percent between these runs are
-within the optimizer's path scatter and should not be read as the cost of stability.</p>
+<p>With neither frequency nor buckling constraints the design is @@mass_N@@ kg with \(\alpha_{cr}\) = @@alpha_N@@, so buckling is still not critical at
+\(\alpha_{req}=3\). Requirements above that value do become active (see the last column), and the optimizer reshapes the compression members to meet
+them. The mass does not rise steadily with the requirement; some constrained runs end lighter than the unconstrained one. These are different local
+optima of a nonconvex problem, so differences of a few percent between these runs are path scatter, not the cost of stability.</p>
 
-<h2 id="results">8 Results table</h2>
-<p>All values from an independent re-analysis of each final design on a fresh model instance (@@h_mm@@ mm mesh, p = 3, &beta; = 8).
-Stress p-norm values are the constrained aggregates; "true max" is the largest relaxed Gauss-point von Mises stress.</p>
+<h2 id="results">8 Results</h2>
+<p>Every value below comes from re-analysing the final design on a fresh model (@@h_mm@@ mm mesh, p = 3, &beta; = @@beta_final@@). The stress p-norm is
+the constrained aggregate. "True max" is the largest relaxed von Mises stress at any Gauss point.</p>
 @@results_table@@
-<h3>Robustness checks</h3>
+<h3>Refined-mesh and other checks</h3>
 @@checks_table@@
-<p><b>Mesh refinement.</b> The frequency of an optimized design depends on the voxel size: coarse voxels make the thin, partly gray members
-too stiff in bending. The 20 mm design S1 gives @@coarse_f1@@ Hz on its own mesh and @@refine_f1@@ Hz when every voxel is split into eight.
-The reported 10 mm design B gives @@ref5_f1@@ Hz on a 5 mm mesh (@@ref5_pct@@ %, ratio @@ref5_ratio@@), so it @@ref5_verdict@@.
-Stress (max p-norm @@ref5_stress@@ MPa on the 5 mm mesh) and displacement keep large margins. The 5 mm check covers the static and modal
-responses; buckling was not recomputed at 5 mm (about 10<sup>5</sup> DOFs), and its margin is two orders of magnitude. A further refinement
-would lower the frequency again by a smaller amount, which was not quantified.</p>
-<p><b>0/1 interpretation.</b> Thresholding B at &rho; = 0.5 gives @@thr_mass@@ kg with f<sub>1</sub> = @@thr_f1@@ Hz: removing the gray voxels, which carry
-mass but little stiffness under SIMP, raises the frequency. Thresholding is used only for this check and for display.</p>
+<p><b>Mesh refinement.</b> The frequency of an optimized design depends on the voxel size, because coarse voxels make thin, partly gray members too stiff in bending.
+The 20 mm design S1 gives @@coarse_f1@@ Hz on its own mesh and @@refine_f1@@ Hz when every voxel is split into eight. Our design B gives @@ref5_f1@@ Hz on the
+5 mm mesh (@@ref5_pct@@ %, ratio @@ref5_ratio@@), so it @@ref5_verdict@@. Stress (largest p-norm @@ref5_stress@@ MPa on the 5 mm mesh) and displacement
+keep large margins. We did not recompute buckling on the 5 mm mesh (about 10<sup>5</sup> degrees of freedom), but its margin on the 10 mm mesh is large.</p>
+<p><b>The 6.67 mm check does not pass.</b> The 6.67 mm grid does not line up with the 10 mm voxels, so we had to transfer the densities somehow. Averaging
+by volume overlap keeps the total volume but turns boundary voxels gray: @@mid_f1@@ Hz. Taking the density of the coarse voxel at each fine voxel's centre
+keeps the boundaries crisp but moves member faces by up to a third of a voxel: @@mid_near_f1@@ Hz (mass @@mid_near_mass@@ kg). Both are below 100 Hz, while
+the nested 5 mm mesh gives @@ref5_f1@@ Hz. We do not know which of these numbers is closest to the real bracket. What the spread does tell us is that the
+first frequency of this design moves by a few percent depending on how its voxel geometry is discretized, and our 1 Hz margin on the 5 mm mesh is smaller
+than that spread. So we can only say the design meets 100 Hz on the 10 mm and 5 mm meshes, not that it meets it independent of the mesh. A design for
+real use would need a larger margin, or optimization on a finer mesh, or a smooth CAD model re-analysed with a converged mesh.</p>
+<p><b>Transfer between meshes.</b> Splitting each 10 mm voxel into eight 5 mm voxels keeps the geometry exactly. A unit test checks that the transfer keeps the
+material volume and the passive pads and interface. It also checks, on both meshes, the support footprint (four 40 &times; 40 mm pads), the interface size,
+the total force, the 400 N&middot;m torque and the 120 kg engine mass.</p>
+<p><b>0/1 version.</b> If we threshold B at &rho; = 0.5, it weighs @@thr_mass@@ kg and has f<sub>1</sub> = @@thr_f1@@ Hz. Removing the gray voxels, which add
+mass but little stiffness under SIMP, raises the frequency. We only use thresholding for this check and for the pictures.</p>
 @@fig_geometry@@
 @@fig_stress@@
 @@fig_modes@@
 
 <h2 id="bonus">9 Bonus: topology optimization</h2>
-<p>The design is a material distribution in which material may vanish: SIMP with penalization continuation, a 30 mm density filter
-(minimum length scale, checkerboard suppression), Heaviside projection to a crisp 0/1 field, stress relaxation against the singular
-optimum, void-safe mass and prestress interpolations, and a comparison with the unoptimized solid domain and between two mesh sizes.
-Whether this counts toward the topology bonus, given that the base problem is itself topology optimization, is for the instructor to decide.</p>
+<p>Our design variables let material disappear completely, so the bracket's layout, not just its sizes, comes out of the optimization. We used SIMP with
+penalty continuation, a 30 mm density filter (minimum member size, no checkerboards), projection to a crisp 0/1 field, stress relaxation against singular
+optima, and void-safe mass and prestress models. We compared the result with the unoptimized solid block and across mesh sizes. Since the base project
+is already a topology problem, the instructor will decide whether this counts toward the bonus.</p>
 
-<h2 id="limitations">10 Limitations and AI-use statement</h2>
+<h2 id="limitations">10 Limitations, what we learned, and AI use</h2>
 <h3>Limitations</h3>
 <ul>
-<li>Linear elasticity and linear (eigenvalue) buckling only: no plasticity, no geometric nonlinearity, no imperfection sensitivity. Real
-buckling capacity of thin members can be well below the linear estimate; here the margin is large.</li>
-<li>Supports are bonded pads; real bolts, contact, preload and slip are not modelled. Loads are uniform/linear tractions on an idealized patch.</li>
-<li>Stress at the clamped pad edges and the patch corners is singular in linear elasticity (section 4), so the maximum stress is mesh dependent.
-The relaxed, aggregated stress is an engineering measure, not a certification value.</li>
-<li>Voxel resolution @@h_mm@@ mm: surfaces are stair-stepped and the first frequency is mesh dependent. The design is optimized to
-@@f_design@@ Hz on the @@h_mm@@ mm mesh and gives @@ref5_f1@@ Hz on a 5 mm mesh (section 8); convergence beyond 5 mm was not checked.</li>
-<li>Intermediate densities remain at boundaries (see grayness in the results table); the thresholded check quantifies the effect.</li>
-<li>No fatigue (engine vibration is cyclic), no thermal loads, no manufacturing validation. 276 MPa is a typical yield strength;
-a design-allowable (MMPDS) value is lower.</li>
-<li>The engine is a lumped translational mass; its rotary inertia, which would lower rocking modes, is neglected.</li>
-<li>No comparison with commercial FE software was carried out; verification relies on the analytical ladder and the independent method (i) check.</li>
-<li>MMA without globally convergent safeguards (GCMMA); topology optimization has many local optima.</li>
+<li>Linear elasticity and linear (eigenvalue) buckling only: no plasticity, no large deflections, no imperfections. Real thin members can buckle well
+below the linear estimate; here the margin is large.</li>
+<li>The bolt pads are bonded to the ground. We did not model bolts, contact, preload or slip. The loads are idealized tractions on a patch.</li>
+<li>Stress at the clamped pad edges and the patch corners is singular in linear elasticity (section 4), so the peak stress depends on the mesh. Our
+relaxed, aggregated stress is an engineering estimate, not a certification value.</li>
+<li>Voxel size @@h_mm@@ mm: surfaces are stair-stepped and the frequency depends on the mesh. The design meets 100 Hz on the 10 mm and 5 mm meshes
+(@@ref5_f1@@ Hz at 5 mm) but gives @@mid_range@@ Hz on a 6.67 mm mesh (section 8). We have not shown mesh convergence, and the frequency margin is
+smaller than the mesh-to-mesh spread.</li>
+<li>Some gray density remains at member boundaries (see grayness in the results table); the thresholded check shows its effect.</li>
+<li>No fatigue (engine vibration is cyclic), no thermal loads, no manufacturing check. 276 MPa is a typical yield strength; a design-allowable (MMPDS) value
+would be lower.</li>
+<li>The engine is a lumped mass without rotary inertia; including it would lower the rocking modes.</li>
+<li>We did not compare against commercial FE software. Our evidence is the analytical checks and the independent method (i) gradients.</li>
+<li>Our MMA has no globally convergent safeguard (GCMMA), and topology problems have many local optima.</li>
+</ul>
+<h3>What we learned</h3>
+<ul>
+<li>A gradient can pass a finite-difference check and still be the gradient of the wrong model. We only found our K<sub>G</sub> scaling bug by comparing
+two independent assemblies.</li>
+<li>Meeting a constraint on the optimization mesh is not the same as meeting it. Our first "feasible" design failed the 5 mm check by 5 %, and even
+after we added a margin, a third mesh (6.67 mm) still came out below 100 Hz. One refined mesh is not enough evidence.</li>
+<li>How a constraint is written matters as much as what it says. \(\lambda_{req}/\lambda_1-1\) and \(1-\lambda_1/\lambda_{req}\) allow the same designs,
+but MMA only behaved with the second one.</li>
+<li>In our problem the frequency requirement, not strength or buckling, decides the mass. Before running it we expected stress to matter more.</li>
+</ul>
+<h3>Things that did not work</h3>
+<ul>
+<li><b>Starting the continuation at p = 1.</b> Gray designs are too efficient at p = 1. MMA removed almost all the material in a few steps and could not
+recover, so we start at p = 2.</li>
+<li><b>Frequency constraint \(\lambda_{req}/\lambda_1-1\).</b> It blows up as the design gets thin, and MMA oscillated with the constraint at +20. We switched to
+\(1-\mathrm{KS}_{\min}(\lambda_i/\lambda_{req})\), which allows the same designs.</li>
+<li><b>Optimizing to exactly 100 Hz on the 10 mm mesh.</b> The design gave 94.8 Hz on the 5 mm mesh. This is why we now sweep the target and check every candidate.</li>
+<li><b>Quick runs with short stages.</b> With only 10 iterations per stage, the side-study runs without the frequency constraint collapsed to empty designs.
+With full stages they converge.</li>
+@@failed_trials_extra@@
 </ul>
 <h3>AI-use statement</h3>
-<p>The repository, including the solver, sensitivities, optimizer, tests, figures, this page and the 3D viewer, was written by an AI coding agent
-(Anthropic's Claude, in Claude Code) working from the team's specification. Correctness rests on checks the code runs itself: the verification
-ladder against closed-form theory, central-difference and Taylor tests of every gradient, and an independent dense automatic-differentiation
-pipeline. Bugs caught by these checks during development:</p>
+<p>We used Claude Code (Anthropic) extensively to generate and revise code, tests, figures and report text from our project specification. This includes the
+solver, the sensitivities, the optimizer, the 3D viewer and this page. We checked the generated implementation using analytical verification cases,
+finite-difference gradient tests, an independent automatic-differentiation pipeline, mesh refinement and independent re-analysis. Bugs these checks caught
+during development:</p>
 <ul>
-<li><b>Geometric stiffness scaled twice by E<sub>0</sub>.</b> The bracket's \(\mathbf K_G\) map already contained \(E_0\) and the interpolation multiplied it
-again, giving \(\alpha_{cr}\approx 0\). The finite-difference check passed (the error was self-consistent); comparing with an independent
+<li><b>Geometric stiffness scaled twice by E<sub>0</sub>.</b> The bracket's \(\mathbf K_G\) map already contained \(E_0\), and the interpolation multiplied by
+it again, so \(\alpha_{cr}\approx 0\). The finite-difference check passed because the error was self-consistent. Comparing with an independent
 element-by-element assembly (now check V5.kg) exposed it.</li>
-<li><b>Engine mass applied to the wrong DOFs in the method (i) check.</b> The dense check sliced an already-reduced matrix a second time; the
-frequency value disagreed with the sparse solver, and <code>scipy.linalg.eigh</code> on the sparse model's matrices showed the sparse solver was right.</li>
-<li><b>YAML parsed <code>69.0e9</code> as a string</b> (YAML 1.1 needs an exponent sign); the first test run failed and the config now uses <code>69.0e+9</code>.</li>
-<li><b>Design infeasible on a finer mesh.</b> The first complete run constrained the frequency to exactly 100 Hz on the 10 mm mesh. The
-refinement check gave 94.8 Hz on a 5 mm mesh, so the design did not meet the requirement. The optimizer now targets @@f_design@@ Hz and the
-refinement check is part of <code>run_all.py</code>.</li>
-<li><b>Badly scaled frequency constraint.</b> The first form \(\lambda_{req}/\lambda_1-1\) exploded as the design thinned and MMA oscillated at +20;
-it was replaced by the bounded, nearly linear \(1-\mathrm{KS}_{\min}(\lambda_i/\lambda_{req})\) (same feasible set).</li>
+<li><b>Engine mass on the wrong DOFs in the method (i) check.</b> The dense check sliced an already-reduced matrix a second time. Its frequency disagreed with
+the sparse solver, and <code>scipy.linalg.eigh</code> on the sparse model's matrices showed the sparse solver was right.</li>
+<li><b>YAML read <code>69.0e9</code> as text</b> (YAML 1.1 needs a sign in the exponent). The first test run failed; the config now uses <code>69.0e+9</code>.</li>
+<li><b>Design infeasible on a finer mesh</b> (above): caught by the refinement check, which is now part of <code>run_all.py</code>.</li>
+<li><b>KKT check crashed when no constraint was active.</b> SciPy's <code>nnls</code> was called with zero columns and failed inside native
+code, which killed a worker process in a quick test run of the pipeline. The check now handles that case directly, and a unit test covers it.</li>
 </ul>
+<h3>Team and contributions</h3>
+<div class="scroll"><table>
+<tr><th>Member</th><th>Contribution</th><th>Reviewed</th></tr>
+<tr><td>TODO: name</td><td>TODO: contribution</td><td>TODO: FE analysis and verification (sections 3&ndash;4)</td></tr>
+<tr><td>TODO: name</td><td>TODO: contribution</td><td>TODO: gradients (section 5)</td></tr>
+<tr><td>TODO: name</td><td>TODO: contribution</td><td>TODO: optimization (sections 6&ndash;7)</td></tr>
+<tr><td>TODO: name</td><td>TODO: contribution</td><td>TODO: website and 3D viewer</td></tr>
+</table></div>
 <p>Hardware and run time: @@env@@. The complete <code>python run_all.py</code> took @@t_pipeline@@ min.
-Reproduce with <code>pip install -r requirements.txt</code>, <code>python -m pytest -q</code>, <code>python run_all.py</code>.</p>
+To reproduce: <code>pip install -r requirements.txt</code>, <code>python -m pytest -q</code>, <code>python run_all.py</code>.</p>
 
 <h2 id="references">References</h2>
 <ol style="font-size:0.88rem">

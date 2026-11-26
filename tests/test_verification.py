@@ -96,3 +96,53 @@ def test_mma_and_kkt_on_known_problem():
     r = dict(df=np.ones(n), g=np.array([np.sum(1 / x) - n]), dg=-(1 / x ** 2)[None])
     k = kkt(r, x, 0.1, 10.0, [0])
     assert abs(k["multipliers"]["stress_LC1"] - 1) < 1e-4 and k["stationarity"] < 1e-5
+
+
+def test_mesh_transfer_preserves_model():
+    """Splitting every 20 mm voxel into eight 10 mm voxels keeps the physical model."""
+    from src.report import _upsample
+    c, f = Bracket(CFG, 0.02), Bracket(CFG, 0.01)
+    rho = np.random.default_rng(0).uniform(0.01, 1.0, c.ne)
+    up = _upsample(rho, c.nel)
+    assert np.isclose(rho.sum() * c.h ** 3, up.sum() * f.h ** 3, rtol=1e-12)  # volume (and mass)
+    assert np.array_equal(_upsample(c.passive.astype(float), c.nel) > 0, f.passive)  # passive regions
+    for m in (c, f):
+        xs, xi = m.nodes[m.support_nodes], m.nodes[m.iface_nodes]
+        assert np.isclose(len(m.support_nodes) and (xs[:, 0].max() - xs[:, 0].min()), 0.2)
+        assert np.allclose([np.ptp(xi[:, 0]), np.ptp(xi[:, 1])], [0.08, 0.04])  # interface patch
+        F = m.F.reshape(-1, 3, 3)
+        assert np.allclose(F.sum(0)[2], -m.load_magnitude)  # total vertical force, every LC
+        dx = m.nodes[:, 0] - m.L[0] / 2
+        assert np.isclose(-(dx * (F[:, 2, 1] - F[:, 2, 0])).sum(), m.torque)  # torque about y
+        assert np.isclose(m.M_engine.diagonal().sum(), 3 * CFG["loads"]["engine_mass"])  # lumped engine mass
+        q = (xs[:, 0] > m.L[0] / 2) * 2 + (xs[:, 1] > m.L[1] / 2)  # quadrant of each support node
+        assert sorted(set(q)) == [0, 1, 2, 3]  # four bolt pads
+        for k in range(4):
+            assert np.allclose(np.ptp(xs[q == k][:, :2], axis=0), CFG["geometry"]["pad_size"])  # 40 x 40 mm each
+
+
+def test_selection_rule_needs_refined_margin():
+    """The lightest candidate is rejected when its refined-mesh frequency margin is below 1 Hz."""
+    import copy
+    import run_all
+    cfg = copy.deepcopy(CFG)
+    cfg["sweep"]["targets"] = [105.0, 106.0, 107.0]
+
+    def cand(mass, f5, g=-1e-6):
+        return dict(metrics=dict(mass=mass, g={"freq": g}, alpha_min=200.0, connectivity=dict(passive_connected=True, components=1)),
+                    refined=dict(freq_Hz=[f5], pnorm_MPa=[100.0], disp_mm=[0.05]))
+    runs = {"B_105": cand(1.30, 100.5), "B_106": cand(1.32, 101.2), "B_107": cand(1.35, 102.0)}
+    target, rows = run_all.select(cfg, runs)
+    assert target == 106.0 and not rows[0]["ok"]
+    runs["B_106"] = cand(1.32, 101.2, g=2e-5)  # smooth constraint not met to 1e-5
+    assert run_all.select(cfg, runs)[0] == 107.0
+    runs = {k: cand(1.3, f5, g=2e-5) for k, f5 in [("B_105", 100.2), ("B_106", 100.6), ("B_107", 100.4)]}
+    target, rows = run_all.select(cfg, runs)  # nothing passes: highest refined frequency, every row flagged
+    assert target == 106.0 and not any(r["ok"] for r in rows)
+
+
+def test_kkt_without_active_constraints():
+    """No near-active constraint: no multipliers, and stationarity is just the objective gradient."""
+    r = dict(df=np.ones(4), g=np.array([-0.5]), dg=np.ones((1, 4)))
+    k = kkt(r, np.full(4, 0.5), 0.0, 1.0, [0])
+    assert k["multipliers"] == {} and abs(k["stationarity"] - 1.0) < 1e-12 and k["dual_feasible"]

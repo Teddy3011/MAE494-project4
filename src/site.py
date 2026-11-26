@@ -20,6 +20,17 @@ DG_PER_PCT = {"freq": 0.02, "buckling_LC2": 0.01, "buckling_LC3": 0.01, **{f"str
               **{f"disp_LC{k}": 0.01 for k in (1, 2, 3)}}
 
 
+# Extra "things that did not work" items, written after looking at the convergence study.
+FAILED_TRIALS_EXTRA = (
+    "<li><b>Crisper final designs.</b> Raising the projection to &beta; = 16 and then 32 (cases E3 and E4 in the convergence-study "
+    "table) made the bracket much lighter on the 10 mm mesh. But those designs lost more frequency on the 5 mm mesh and converged "
+    "worse. We chose the converged &beta; = 8 design. The lighter route would need a higher frequency target and more iterations, "
+    "and we did not have time to finish it.</li>"
+    "<li><b>Running all 5 mm checks at once.</b> Eight parallel workers each built a 5 mm model and the computer ran out of memory, "
+    "which lost a 1-hour sweep. The 5 mm checks now run one at a time, and every optimization run is saved as soon as it finishes "
+    "(<code>python run_all.py --resume</code> reuses them).</li>")
+
+
 def f(v, d=3):
     """Number formatting: fixed decimals, or 3 significant digits in scientific notation for tiny/huge."""
     v = float(v)
@@ -49,7 +60,10 @@ def build(data, out, model):
     A, B, I = D["A"], D["B"], D["initial"]
     lim = cfg["limits"]
     ctx = {}
-    ctx["mode_note"] = "" if data["mode"] == "final" else (
+    sel_fail = "" if any(r["ok"] for r in data["selection"]) else (
+        '<p class="note bad">NO SWEEP CANDIDATE PASSED EVERY CHECK. The design shown is the candidate with the highest '
+        "refined-mesh frequency and does not meet the selection rule (see section 6).</p>")
+    ctx["mode_note"] = sel_fail + "" if data["mode"] == "final" else sel_fail + (
         '<p class="note bad">QUICK MODE OUTPUT: principal runs on the coarse mesh with shortened continuation. '
         "Not for submission; run <code>python run_all.py</code>.</p>")
     ctx["h_mm"] = f"{out['h_report'] * 1e3:.0f}"
@@ -65,7 +79,10 @@ def build(data, out, model):
     allB = all(r[4] for r in constraint_table(B))
     allA = all(r[4] for r in constraint_table(A))
     ctx["feasible_B"] = "all constraints satisfied" if allB else "NOT all constraints satisfied (see results table)"
-    ctx["kpi_feasible"] = status(allB)
+    ref = out["checks"].get("refined_B")
+    ref_ok = ref is not None and (ref["freq_Hz"][0] >= lim["freq_min"] and max(ref["pnorm_MPa"]) <= B["allow"]["stress_MPa"]
+                                  and max(ref["disp_mm"]) <= B["allow"]["disp_mm"])
+    ctx["kpi_feasible"] = status(allB and ref_ok)
     ctx["dm_AB"] = f"{100 * (B['mass'] - A['mass']) / A['mass']:+.2f}"
     actB = [c for c in CONSTRAINTS if B["g"][c] > -1e-2]
     ctx["active_B"] = ", ".join(LABEL[c] for c in actB) or "none"
@@ -160,15 +177,46 @@ def build(data, out, model):
     ctx["kkt_mult_table"] = tab(["Run", "Near-active constraint", "g at optimum", "&lambda; (NNLS stationarity)", "&lambda; (MMA dual)",
                                  "approx. mass cost of a 1 % tighter limit [g]"], kk)
     ctx["kkt_res_table"] = tab(["Run", "stationarity ||&nabla;f + J<sup>T</sup>&lambda;||/||&nabla;f|| (free vars)", "bound-sign violation",
-                                "primal violation max(g,0)", "complementarity max|&lambda; g|", "vars at lower bound", "at upper bound", "between bounds"],
-                               [[k, f(runs[k]["kkt"]["stationarity"], 4), f(runs[k]["kkt"]["bound_sign_violation"], 4), f(runs[k]["kkt"]["primal_violation"], 5),
-                                 f(runs[k]["kkt"]["complementarity"], 6), str(runs[k]["kkt"]["n_lower"]), str(runs[k]["kkt"]["n_upper"]), str(runs[k]["kkt"]["n_inner"])]
+                                "primal violation max(g,0)", "dual feasibility &lambda; &ge; 0", "complementarity max|&lambda; g|", "vars at lower bound", "at upper bound", "between bounds"],
+                               [[k, f(runs[k]["kkt"]["stationarity"], 4), f(runs[k]["kkt"]["bound_sign_violation"], 4), f(runs[k]["kkt"]["primal_violation"], 6),
+                                 "yes" if runs[k]["kkt"].get("dual_feasible", True) else "NO", f(runs[k]["kkt"]["complementarity"], 6), str(runs[k]["kkt"]["n_lower"]), str(runs[k]["kkt"]["n_upper"]), str(runs[k]["kkt"]["n_inner"])]
                                 for k in ("A", "B")])
     ctx["stat_B"] = f(runs["B"]["kkt"]["stationarity"], 3)
     ctx["chosen_A"], ctx["chosen_B"] = runs["A"]["chosen"], runs["B"]["chosen"]
-    ctx["cont_table"] = tab(["Stage", "SIMP p", "projection &beta;", "max MMA iterations", "move limit"],
-                            [[str(i + 1), f"{p:g}", f"{b:g}", str(int(n)), f"{cfg['optimizer']['move_final'] if i == len(cfg['simp']['continuation']) - 1 else cfg['optimizer']['move']:g}"]
-                             for i, (p, b, n) in enumerate(cfg["simp"]["continuation"])])
+    cont = cfg["simp"]["continuation"]
+    crows = [["A_base", str(i + 1), f"{p:g}", f"{b:g}", str(int(n)), f"{cfg['optimizer']['move_final'] if i == len(cont) - 1 else cfg['optimizer']['move']:g}"]
+             for i, (p, b, n) in enumerate(cont)]
+    crows += [["A, B and sweep (restart from A_base)", str(len(cont) + i + 1), f"{p:g}", f"{b:g}", str(int(n)), f"{mv:g}"]
+              for i, (p, b, n, mv) in enumerate(runs["B"]["stages"])]
+    ctx["cont_table"] = tab(["Run", "Stage", "SIMP p", "projection &beta;", "max MMA iterations", "move limit"], crows)
+    ctx["beta_final"] = f"{runs['B']['stages'][-1][1]:g}"
+    ctx["target_sel"] = f"{data['target']:g}"
+    ctx["margin_hz"] = f"{cfg['sweep']['refined_margin_hz']:g}"
+    sw = []
+    for row in data["selection"]:
+        t = row["target"]
+        ra, rb_ = runs[f"A_{t:g}"], runs[f"B_{t:g}"]
+        m, rf = rb_["metrics"], rb_["refined"]
+        failed = [k.replace("_", " ") for k, v in row["checks"].items() if not v]
+        sw.append([f"{t:g}", f(ra["metrics"]["mass"], 4), f(m["mass"], 4), f(m["freq_Hz"][0], 2), f(rf["freq_Hz"][0], 2),
+                   f(max(rf["pnorm_MPa"]), 1), f(rf["max_vm_MPa"], 1), f(max(rf["disp_mm"]), 4), f(m["alpha_min"], 1),
+                   f(max(v for v in m["g"].values() if v is not None), 6), f(rb_["kkt"]["stationarity"], 4), str(rb_["iterations"]),
+                   f(rb_["seconds"], 0), f(m["grayness"], 3), str(m["connectivity"]["components"]),
+                   "<b>selected</b>" if t == data["target"] else (status(True) if row["ok"] else "fails: " + ", ".join(failed))])
+    ctx["sweep_table"] = tab(["Target [Hz]", "A mass [kg]", "B mass [kg]", "B f1, 10 mm [Hz]", "B f1, 5 mm [Hz]", "B p-norm, 5 mm [MPa]",
+                              "B max &sigma;<sub>vm</sub>, 5 mm [MPa]", "B disp., 5 mm [mm]", "B &alpha;<sub>cr</sub>", "B max g", "B stationarity",
+                              "B iterations", "B time [s]", "B grayness", "B solid parts", "Rule"], sw)
+    cs = out.get("convergence_study")
+    if cs:
+        ctx["conv_study_table"] = tab(["Case", "Final-stage setting", "iterations", "mass [kg]", "f1, 10 mm [Hz]", "f1, 5 mm [Hz]", "max g", "stationarity",
+                                       "bound-sign", "grayness", "solid parts", "reported iterate"],
+                                      [[r["case"], r["setting"], r["iterations"], f(r["mass_kg"], 4), f(r["f1_10mm_Hz"], 2), f(r["f1_5mm_Hz"], 2), f(r["max_g"], 6),
+                                        f(r["stationarity"], 4), f(r["bound_sign"], 4), f(r["grayness"], 3), r["components"], r["reported"]] for r in cs])
+    else:
+        ctx["conv_study_table"] = "<p>(results/convergence_study.csv not found)</p>"
+    p_, b_, n_, mv_ = runs["B"]["stages"][-1]
+    ctx["conv_study_note"] = (f"Based on this, the final stage in <code>run_all.py</code> uses p = {p_:g}, &beta; = {b_:g}, move limit {mv_:g} "
+                              f"and up to {int(n_)} iterations (<code>sweep.polish_stages</code> in <code>config.yaml</code>).")
 
     # nonlinear study
     nl = []
@@ -187,6 +235,8 @@ def build(data, out, model):
     crow = []
     for key, lab in [("refined_S1", "20 mm design (S1) re-analysed on the 10 mm mesh"),
                      ("refined_B", "Design B re-analysed on a 5 mm mesh (each voxel split in 8)"),
+                     ("mid_B", "Design B on a 6.67 mm mesh (volume-overlap transfer)"),
+                     ("mid_B_nearest", "Design B on a 6.67 mm mesh (nearest-voxel transfer)"),
                      ("thresholded_B", "Design B thresholded at &rho; = 0.5 (0/1 design)")]:
         if key in ch:
             m = ch[key]
@@ -213,6 +263,17 @@ def build(data, out, model):
     else:
         ctx["ref5_f1"] = ctx["ref5_pct"] = ctx["ref5_stress"] = ctx["ref5_ratio"] = "n/a"
         ctx["ref5_verdict"] = "was not run (quick mode)"
+    ctx["mid_f1"] = f(ch["mid_B"]["freq_Hz"][0], 1) if "mid_B" in ch else "n/a (quick mode)"
+    ctx["mid_near_f1"] = f(ch["mid_B_nearest"]["freq_Hz"][0], 1) if "mid_B_nearest" in ch else "n/a (quick mode)"
+    ctx["mid_near_mass"] = f(ch["mid_B_nearest"]["mass"]) if "mid_B_nearest" in ch else "n/a"
+    if "mid_B" in ch and "mid_B_nearest" in ch:
+        mids = sorted([ch["mid_B"]["freq_Hz"][0], ch["mid_B_nearest"]["freq_Hz"][0]])
+        ctx["mid_range"] = f"{mids[0]:.1f}&ndash;{mids[1]:.1f}"
+        ctx["mid_verdict"] = ("which also meets 100 Hz" if mids[0] >= lim["freq_min"] else
+                              "which is below the 100 Hz requirement")
+    else:
+        ctx["mid_range"], ctx["mid_verdict"] = "n/a", "(not run in quick mode)"
+    ctx["failed_trials_extra"] = FAILED_TRIALS_EXTRA
     ctx["a_conv"] = " &rarr; ".join(f"{r['alpha_LC2']:.0f}" for r in mc)
 
     figs = dict(
